@@ -185,6 +185,25 @@
   grid-column: 1 / -1;
 }
 
+
+.duration-input-group {
+  align-items: center;
+  display: grid;
+  gap: 0.25rem;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
+}
+
+.duration-input-group__unit,
+.field-helper {
+  color: oklch(var(--slate-400));
+  font-size: 0.625rem;
+  font-weight: 700;
+}
+
+.field-helper {
+  display: block;
+  margin-block-start: 0.25rem;
+}
 .field-label {
   color: oklch(var(--slate-500));
   display: block;

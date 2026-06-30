@@ -690,3 +690,6 @@
     display: none;
   }
 }
+.timeline-empty-state {
+  margin: 1rem;
+}

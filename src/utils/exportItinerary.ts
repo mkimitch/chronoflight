@@ -1,5 +1,14 @@
-import { Itinerary } from "../types";
+import type { Itinerary } from "../types";
 import { getHourStatusForLocation, isRecommendedSleepHour } from "./timezoneMath";
+import {
+  formatLocationTimezone,
+  getAirportCode,
+  getLocationName,
+  getRenderableSegments,
+  getSafeTripHour,
+  getSegmentArrivalTripHour,
+  getSegmentDepartureTripHour
+} from "./itineraryDisplay";
 
 export type ItineraryExportFormat = "png" | "pdf";
 
@@ -148,7 +157,9 @@ const buildItinerarySvg = ({
 }: ExportItineraryOptions): SvgSnapshot => {
   const colors = getExportColors();
   const locations = itinerary.locations;
-  const totalHours = maxTripHour + 1;
+  const boundedMaxTripHour = Math.max(0, Math.floor(getSafeTripHour(maxTripHour, 24)));
+  const safeCurrentTripHour = Math.min(boundedMaxTripHour, getSafeTripHour(currentTripHour));
+  const totalHours = boundedMaxTripHour + 1;
   const hourIndexes = Array.from({ length: totalHours }, (_, index) => index);
   const margin = 28;
   const titleHeight = 112;
@@ -163,7 +174,7 @@ const buildItinerarySvg = ({
   const gridWidth = totalHours * cellWidth;
   const width = margin * 2 + leftLabelWidth + gridWidth;
   const height = rowsTop + locations.length * rowHeight + footerHeight;
-  const routeLabel = locations.map((location) => location.code).join(" -> ");
+  const routeLabel = locations.map((location) => getAirportCode(location)).join(" -> ") || "Route unavailable";
   const filenameBase = `chronoflight-${sanitizeFilePart(itinerary.name)}-${new Date().toISOString().slice(0, 10)}`;
 
   const locationIndexById = new Map(locations.map((location, index) => [location.id, index]));
@@ -178,7 +189,7 @@ const buildItinerarySvg = ({
     `<rect x="0" y="0" width="${width}" height="${height}" fill="${colors.background}" />`,
     `<rect x="${margin}" y="${margin}" width="${width - margin * 2}" height="${height - margin * 2}" rx="18" fill="${colors.surface}" stroke="${colors.border}" />`,
     `<text x="${margin + 24}" y="${margin + 34}" fill="${colors.textStrong}" font-family="Inter, system-ui, sans-serif" font-size="24" font-weight="800">${escapeXml(itinerary.name)}</text>`,
-    `<text x="${margin + 24}" y="${margin + 60}" fill="${colors.mutedText}" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="600">${escapeXml(routeLabel)} | Timeline H+0 to H+${maxTripHour}</text>`,
+    `<text x="${margin + 24}" y="${margin + 60}" fill="${colors.mutedText}" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="600">${escapeXml(routeLabel)} | Timeline H+0 to H+${boundedMaxTripHour}</text>`,
     `<text x="${margin + 24}" y="${margin + 84}" fill="${colors.mutedText}" font-family="Inter, system-ui, sans-serif" font-size="12">${escapeXml(itinerary.description)}</text>`,
     `<rect x="${width - margin - 270}" y="${margin + 23}" width="246" height="54" rx="12" fill="${colors.indigoSoft}" stroke="${colors.border}" />`,
     `<text x="${width - margin - 246}" y="${margin + 47}" fill="${colors.indigo}" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="800">Shareable itinerary snapshot</text>`,
@@ -189,7 +200,7 @@ const buildItinerarySvg = ({
 
   hourIndexes.forEach((hour) => {
     const x = gridLeft + hour * cellWidth;
-    const isCurrent = hour === currentTripHour;
+    const isCurrent = hour === safeCurrentTripHour;
     content.push(
       `<rect x="${x}" y="${gridTop}" width="${cellWidth}" height="${headerHeight}" fill="${isCurrent ? colors.indigoSoft : colors.surface}" stroke="${colors.border}" />`,
       `<text x="${x + cellWidth / 2}" y="${gridTop + 25}" fill="${isCurrent ? colors.indigo : colors.mutedText}" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" font-weight="800" text-anchor="middle">${hour === 0 ? "START" : `H+${hour}`}</text>`
@@ -200,10 +211,10 @@ const buildItinerarySvg = ({
     const y = rowsTop + rowIndex * rowHeight;
     content.push(
       `<rect x="${margin}" y="${y}" width="${leftLabelWidth}" height="${rowHeight}" fill="${colors.background}" stroke="${colors.border}" />`,
-      `<text x="${margin + 18}" y="${y + 31}" fill="${colors.textStrong}" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="800">${escapeXml(location.name)}</text>`,
+      `<text x="${margin + 18}" y="${y + 31}" fill="${colors.textStrong}" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="800">${escapeXml(getLocationName(location))}</text>`,
       `<rect x="${margin + 18}" y="${y + 43}" width="44" height="18" rx="4" fill="${colors.border}" />`,
-      `<text x="${margin + 40}" y="${y + 56}" fill="${colors.text}" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="800" text-anchor="middle">${escapeXml(location.code)}</text>`,
-      `<text x="${margin + 70}" y="${y + 56}" fill="${colors.mutedText}" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="700">${escapeXml(location.timezoneLabel)} UTC${location.offset >= 0 ? "+" : ""}${location.offset}</text>`
+      `<text x="${margin + 40}" y="${y + 56}" fill="${colors.text}" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="800" text-anchor="middle">${escapeXml(getAirportCode(location))}</text>`,
+      `<text x="${margin + 70}" y="${y + 56}" fill="${colors.mutedText}" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="700">${escapeXml(formatLocationTimezone(location))}</text>`
     );
 
     hourIndexes.forEach((hour) => {
@@ -242,16 +253,16 @@ const buildItinerarySvg = ({
     });
   });
 
-  itinerary.segments.forEach((segment) => {
+  getRenderableSegments(itinerary).forEach((segment) => {
     const fromIndex = locationIndexById.get(segment.fromLocationId);
     const toIndex = locationIndexById.get(segment.toLocationId);
     if (fromIndex === undefined || toIndex === undefined) {
       return;
     }
 
-    const depX = gridLeft + segment.departureTripHour * cellWidth + cellWidth / 2;
+    const depX = gridLeft + getSegmentDepartureTripHour(segment) * cellWidth + cellWidth / 2;
     const depY = rowsTop + fromIndex * rowHeight + rowHeight / 2;
-    const arrX = gridLeft + (segment.departureTripHour + segment.duration) * cellWidth + cellWidth / 2;
+    const arrX = gridLeft + getSegmentArrivalTripHour(segment) * cellWidth + cellWidth / 2;
     const arrY = rowsTop + toIndex * rowHeight + rowHeight / 2;
     const dx = arrX - depX;
     const cx1 = depX + dx * 0.35;
@@ -266,7 +277,7 @@ const buildItinerarySvg = ({
       `<circle cx="${midX}" cy="${midY - 4}" r="13" fill="${colors.flightMarkerFill}" />`,
       `<text x="${midX}" y="${midY}" fill="${colors.flightMarkerIcon}" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="900" text-anchor="middle">&gt;</text>`,
       `<rect x="${midX - 36}" y="${midY - 32}" width="72" height="20" rx="6" fill="${colors.flightLabelBackground}" />`,
-      `<text x="${midX}" y="${midY - 18}" fill="${colors.flightLabelText}" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="900" text-anchor="middle">${escapeXml(segment.flightNumber)}</text>`
+      `<text x="${midX}" y="${midY - 18}" fill="${colors.flightLabelText}" font-family="Inter, system-ui, sans-serif" font-size="10" font-weight="900" text-anchor="middle">${escapeXml(segment.flightNumber || "Flight")}</text>`
     );
   });
 
