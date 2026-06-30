@@ -1,11 +1,25 @@
 import React, { useRef, useEffect, useState } from "react";
-import { Itinerary, LocationConfig, FlightSegment } from "../types";
+import type { Itinerary, LocationConfig, FlightSegment } from "../types";
 import {
   getHourStatusForLocation,
   getTravelerStatusAtHour,
   isRecommendedSleepHour,
   getOffsetDayName
 } from "../utils/timezoneMath";
+import { formatDurationFromHours } from "../utils/durationFormat";
+import {
+  formatLocationTimezone,
+  getAirportCode,
+  getItineraryIssue,
+  getLocationLabel,
+  getLocationName,
+  getLocationOffset,
+  getRenderableSegments,
+  getSafeTripHour,
+  getSegmentArrivalTripHour,
+  getSegmentDepartureTripHour,
+  getSegmentDurationHours
+} from "../utils/itineraryDisplay";
 import { Sun, Moon, Plane, Clock, Bed } from "lucide-react";
 
 interface TimelineVisualizerProps {
@@ -107,8 +121,8 @@ const formatExactLocalDateTime = (
   tripHour: number
 ): ExactLocalDateTime => {
   const origin = itinerary.locations[0];
-  const offsetDiff = location.offset - origin.offset;
-  const totalMinutes = Math.round((itinerary.startHourLocal + tripHour + offsetDiff) * 60);
+  const offsetDiff = getLocationOffset(location) - getLocationOffset(origin);
+  const totalMinutes = Math.round((getSafeTripHour(itinerary.startHourLocal) + getSafeTripHour(tripHour) + offsetDiff) * 60);
   const dayOffset = Math.floor(totalMinutes / MINUTES_PER_DAY);
   const minuteOfDay = ((totalMinutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
   const hour24 = Math.floor(minuteOfDay / 60);
@@ -123,16 +137,13 @@ const formatExactLocalDateTime = (
   return {
     dateLabel: `${dayName} (${dayOffsetLabel})`,
     timeLabel: `${hour12}:${String(minute).padStart(2, "0")} ${meridiem}`,
-    timezoneLabel: `${location.timezoneLabel} UTC${location.offset >= 0 ? "+" : ""}${location.offset}`
+    timezoneLabel: formatLocationTimezone(location)
   };
 };
 
-const formatTripElapsed = (tripHour: number) => {
-  const totalMinutes = Math.max(0, Math.round(tripHour * 60));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
 
-  return `${hours}h ${String(minutes).padStart(2, "0")}m`;
+const getFlightLabel = (segment: FlightSegment) => {
+  return segment.flightNumber?.trim() || "Flight";
 };
 
 export default function TimelineVisualizer({
@@ -150,8 +161,13 @@ export default function TimelineVisualizer({
   const rowHeight = 90; // height of each location track in pixels
   const headerHeight = 44; // height of the column headers row in pixels
 
-  const totalHours = maxTripHour + 1;
+  const boundedMaxTripHour = Math.max(0, Math.floor(getSafeTripHour(maxTripHour, 24)));
+  const safeCurrentTripHour = Math.min(boundedMaxTripHour, getSafeTripHour(currentTripHour));
+  const totalHours = boundedMaxTripHour + 1;
   const hoursArray = Array.from({ length: totalHours }, (_, i) => i);
+  const locations = itinerary.locations;
+  const renderableSegments = getRenderableSegments(itinerary);
+  const itineraryIssue = getItineraryIssue(itinerary);
 
   // Update SVG canvas dimensions when container or itinerary changes
   useEffect(() => {
@@ -172,17 +188,17 @@ export default function TimelineVisualizer({
       clearTimeout(timer);
       window.removeEventListener("resize", updateDimensions);
     };
-  }, [itinerary, maxTripHour]);
+  }, [itinerary, boundedMaxTripHour]);
 
   // Hide stale tooltip content when the visualized data changes
   useEffect(() => {
     setFlightTooltip(null);
-  }, [itinerary, maxTripHour]);
+  }, [itinerary, boundedMaxTripHour]);
 
   // Center scroll around active scrubber if possible
   useEffect(() => {
     if (containerRef.current) {
-      const activeX = currentTripHour * cellWidth;
+      const activeX = safeCurrentTripHour * cellWidth;
       const containerWidth = containerRef.current.clientWidth;
       const scrollLeft = activeX - containerWidth / 2 + cellWidth / 2;
       containerRef.current.scrollTo({
@@ -190,10 +206,9 @@ export default function TimelineVisualizer({
         behavior: "smooth"
       });
     }
-  }, [currentTripHour]);
+  }, [safeCurrentTripHour]);
 
   // Determine locations row indexing
-  const locations = itinerary.locations;
   const findRowIndex = (locId: string) => {
     return locations.findIndex(l => l.id === locId);
   };
@@ -208,9 +223,11 @@ export default function TimelineVisualizer({
       return null;
     }
 
-    const depX = 140 + segment.departureTripHour * cellWidth + cellWidth / 2;
+    const departureTripHour = getSegmentDepartureTripHour(segment);
+    const arrivalTripHour = getSegmentArrivalTripHour(segment);
+    const depX = 140 + departureTripHour * cellWidth + cellWidth / 2;
     const depY = headerHeight + fromIdx * rowHeight + rowHeight / 2;
-    const arrX = 140 + (segment.departureTripHour + segment.duration) * cellWidth + cellWidth / 2;
+    const arrX = 140 + arrivalTripHour * cellWidth + cellWidth / 2;
     const arrY = headerHeight + toIdx * rowHeight + rowHeight / 2;
     const dx = arrX - depX;
     const cx1 = depX + dx * 0.35;
@@ -258,7 +275,7 @@ export default function TimelineVisualizer({
     }
 
     const clampedProgress = Math.min(1, Math.max(0, progress));
-    const tripHour = segment.departureTripHour + segment.duration * clampedProgress;
+    const tripHour = getSegmentDepartureTripHour(segment) + getSegmentDurationHours(segment) * clampedProgress;
     const { tooltipX, tooltipY } = getTooltipPosition(anchorPoint);
 
     return {
@@ -270,7 +287,7 @@ export default function TimelineVisualizer({
       toLocation: geometry.toLocation,
       tooltipX,
       tooltipY,
-      tripElapsedLabel: formatTripElapsed(tripHour),
+      tripElapsedLabel: formatDurationFromHours(tripHour),
       tripHour
     };
   };
@@ -334,7 +351,7 @@ export default function TimelineVisualizer({
     }
 
     setFlightTooltip(tooltip);
-    onSetTripHour(Math.min(maxTripHour, Math.max(0, Math.round(tooltip.tripHour))));
+    onSetTripHour(Math.min(boundedMaxTripHour, Math.max(0, Math.round(tooltip.tripHour))));
   };
 
   const handleFlightPathFocus = (segment: FlightSegment) => {
@@ -367,16 +384,19 @@ export default function TimelineVisualizer({
 
     event.preventDefault();
     handleFlightPathFocus(segment);
-    onSetTripHour(Math.min(maxTripHour, Math.max(0, Math.round(segment.departureTripHour + segment.duration / 2))));
+    onSetTripHour(Math.min(
+      boundedMaxTripHour,
+      Math.max(0, Math.round(getSegmentDepartureTripHour(segment) + getSegmentDurationHours(segment) / 2))
+    ));
   };
 
   // Helper to handle timeline column click
   const handleColumnClick = (hour: number) => {
-    onSetTripHour(hour);
+    onSetTripHour(Math.min(boundedMaxTripHour, Math.max(0, hour)));
   };
 
   const playheadStyle = {
-    left: `${140 + currentTripHour * cellWidth + cellWidth / 2}px`,
+    left: `${140 + safeCurrentTripHour * cellWidth + cellWidth / 2}px`,
     width: "2px"
   };
 
@@ -415,374 +435,378 @@ export default function TimelineVisualizer({
         </div>
       </div>
 
-      {/* Main Scroller Area */}
-      <div 
-        ref={containerRef}
-        className="timeline-scroller"
-        style={{ minHeight: `${headerHeight + locations.length * rowHeight + 20}px` }}
-      >
-        <div 
-          ref={gridContentRef}
-          className="timeline-grid-content"
-          style={{ width: `${locations.length ? totalHours * cellWidth + 140 : 100}px` }}
-        >
-          {/* 1. SVG Layer for Flights, Flight Numbers, and Connections */}
-          <svg 
-            className="timeline-flight-layer"
-            style={{ width: `${svgDimensions.width}px`, height: `${svgDimensions.height}px` }}
+      {locations.length === 0 ? (
+        <div className="empty-state timeline-empty-state" role="status">
+          <p className="empty-state__copy">Add at least one airport to build the timeline.</p>
+        </div>
+      ) : (
+        <>
+          {itineraryIssue && (
+            <div className="empty-state timeline-empty-state" role="status">
+              <p className="empty-state__copy">{itineraryIssue}</p>
+            </div>
+          )}
+
+          {/* Main Scroller Area */}
+          <div
+            ref={containerRef}
+            className="timeline-scroller"
+            style={{ minHeight: `${headerHeight + locations.length * rowHeight + 20}px` }}
           >
-            {/* Draw flight paths */}
-            {itinerary.segments.map((seg) => {
-              const fromIdx = findRowIndex(seg.fromLocationId);
-              const toIdx = findRowIndex(seg.toLocationId);
-              
-              if (fromIdx === -1 || toIdx === -1) return null;
-
-              // Compute center coordinates of origin cell
-              const depX = 140 + seg.departureTripHour * cellWidth + cellWidth / 2;
-              const depY = headerHeight + fromIdx * rowHeight + rowHeight / 2;
-
-              // Compute center coordinates of destination cell
-              const arrX = 140 + (seg.departureTripHour + seg.duration) * cellWidth + cellWidth / 2;
-              const arrY = headerHeight + toIdx * rowHeight + rowHeight / 2;
-
-              // Control points for a graceful bezier curve path
-              const dx = arrX - depX;
-              const cx1 = depX + dx * 0.35;
-              const cy1 = depY;
-              const cx2 = depX + dx * 0.65;
-              const cy2 = arrY;
-
-              return (
-                <g key={seg.id} className="timeline-flight-group">
-                  {/* Subtle Flight path background trail */}
-                  <path
-                    d={`M ${depX} ${depY} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${arrX} ${arrY}`}
-                    fill="none"
-                    stroke="oklch(var(--flight-path-shadow))"
-                    strokeWidth="4"
-                    strokeLinecap="round"
-                    className="timeline-flight-path-shadow"
-                  />
-                  {/* Active Flight path line */}
-                  <path
-                    id={`path-flight-${seg.id}`}
-                    d={`M ${depX} ${depY} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${arrX} ${arrY}`}
-                    fill="none"
-                    stroke="oklch(var(--flight-path))"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeDasharray="6 4"
-                    className="timeline-flight-path"
-                  />
-                  <path
-                    d={`M ${depX} ${depY} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${arrX} ${arrY}`}
-                    fill="none"
-                    stroke="oklch(var(--flight-path) / 0)"
-                    strokeWidth="18"
-                    strokeLinecap="round"
-                    className="timeline-flight-hit-area"
-                    role="button"
-                    tabIndex={0}
-                    aria-label={`Inspect exact local times along ${seg.flightNumber}`}
-                    onPointerMove={(event) => handleFlightPointerMove(event, seg)}
-                    onPointerLeave={() => setFlightTooltip(null)}
-                    onPointerDown={(event) => handleFlightPathClick(event, seg)}
-                    onFocus={() => handleFlightPathFocus(seg)}
-                    onBlur={() => setFlightTooltip(null)}
-                    onKeyDown={(event) => handleFlightPathKeyDown(event, seg)}
-                  />
-                  {/* Flight Plane Icon along curve */}
-                  <circle cx={(depX + arrX) / 2} cy={(depY + arrY) / 2 - 4} r="10" fill="oklch(var(--flight-marker-fill))" className="timeline-flight-marker" />
-                  <text 
-                    x={(depX + arrX) / 2} 
-                    y={(depY + arrY) / 2} 
-                    fill="oklch(var(--flight-marker-icon))" 
-                    fontSize="7" 
-                    fontWeight="bold" 
-                    textAnchor="middle"
-                  >
-                    ✈
-                  </text>
-
-                  {/* Flight code label tag */}
-                  <g transform={`translate(${(depX + arrX) / 2}, ${(depY + arrY) / 2 - 20})`}>
-                    <rect 
-                      x="-30" 
-                      y="-8" 
-                      width="60" 
-                      height="15" 
-                      rx="4" 
-                      fill="oklch(var(--flight-label-background))" 
-                    />
-                    <text 
-                      fill="oklch(var(--flight-label-text))" 
-                      fontSize="8" 
-                      fontWeight="bold" 
-                      textAnchor="middle" 
-                      y="2"
-                    >
-                      {seg.flightNumber}
-                    </text>
-                  </g>
-                </g>
-              );
-            })}
-          </svg>
-
-          {/* 2. Horizontal Hours Headers */}
-          <div className="timeline-hour-header">
-            {/* Sticky Label cell corner */}
-            <div className="timeline-location-corner">
-              <span className="timeline-location-corner__label">Locations</span>
-            </div>
-
-            {/* Scrolling Hours */}
-            <div className="timeline-hour-row">
-              {hoursArray.map((hour) => {
-                const isCurrent = hour === currentTripHour;
-                return (
-                  <div 
-                    key={hour}
-                    id={`header-col-${hour}`}
-                    onClick={() => handleColumnClick(hour)}
-                    className={`timeline-hour-cell${isCurrent ? " timeline-hour-cell--current" : ""}`}
-                  >
-                    <span>
-                      {hour === 0 ? "START" : `H +${hour}`}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* 3. Timezone rows for each City */}
-          {locations.map((loc, rowIdx) => {
-            return (
-              <div 
-                key={loc.id} 
-                className="timeline-row"
+            <div
+              ref={gridContentRef}
+              className="timeline-grid-content"
+              style={{ width: `${totalHours * cellWidth + 140}px` }}
+            >
+              {/* 1. SVG Layer for Flights, Flight Numbers, and Connections */}
+              <svg
+                className="timeline-flight-layer"
+                style={{ width: `${svgDimensions.width}px`, height: `${svgDimensions.height}px` }}
               >
-                {/* Sticky Row City Label */}
-                <div className="timeline-location-label">
-                  <div className="timeline-location-name-row">
-                    <span className="timeline-location-name">{loc.name}</span>
-                    <span className="timeline-location-code">
-                      {loc.code}
-                    </span>
-                  </div>
-                  <span className="timeline-location-zone">
-                    {loc.timezoneLabel} (UTC {loc.offset >= 0 ? `+${loc.offset}` : loc.offset})
-                  </span>
+                {/* Draw flight paths */}
+                {renderableSegments.map((seg) => {
+                  const geometry = getFlightGeometry(seg);
+
+                  if (!geometry) return null;
+
+                  const midX = (geometry.depX + geometry.arrX) / 2;
+                  const midY = (geometry.depY + geometry.arrY) / 2;
+
+                  return (
+                    <g key={seg.id} className="timeline-flight-group">
+                      {/* Subtle Flight path background trail */}
+                      <path
+                        d={geometry.pathD}
+                        fill="none"
+                        stroke="oklch(var(--flight-path-shadow))"
+                        strokeWidth="4"
+                        strokeLinecap="round"
+                        className="timeline-flight-path-shadow"
+                      />
+                      {/* Active Flight path line */}
+                      <path
+                        id={`path-flight-${seg.id}`}
+                        d={geometry.pathD}
+                        fill="none"
+                        stroke="oklch(var(--flight-path))"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeDasharray="6 4"
+                        className="timeline-flight-path"
+                      />
+                      <path
+                        d={geometry.pathD}
+                        fill="none"
+                        stroke="oklch(var(--flight-path) / 0)"
+                        strokeWidth="18"
+                        strokeLinecap="round"
+                        className="timeline-flight-hit-area"
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Inspect exact local times along ${getFlightLabel(seg)}`}
+                        onPointerMove={(event) => handleFlightPointerMove(event, seg)}
+                        onPointerLeave={() => setFlightTooltip(null)}
+                        onPointerDown={(event) => handleFlightPathClick(event, seg)}
+                        onFocus={() => handleFlightPathFocus(seg)}
+                        onBlur={() => setFlightTooltip(null)}
+                        onKeyDown={(event) => handleFlightPathKeyDown(event, seg)}
+                      />
+                      {/* Flight Plane Icon along curve */}
+                      <circle cx={midX} cy={midY - 4} r="10" fill="oklch(var(--flight-marker-fill))" className="timeline-flight-marker" />
+                      <text
+                        x={midX}
+                        y={midY}
+                        fill="oklch(var(--flight-marker-icon))"
+                        fontSize="7"
+                        fontWeight="bold"
+                        textAnchor="middle"
+                      >
+                        ✈
+                      </text>
+
+                      {/* Flight code label tag */}
+                      <g transform={`translate(${midX}, ${midY - 20})`}>
+                        <rect
+                          x="-30"
+                          y="-8"
+                          width="60"
+                          height="15"
+                          rx="4"
+                          fill="oklch(var(--flight-label-background))"
+                        />
+                        <text
+                          fill="oklch(var(--flight-label-text))"
+                          fontSize="8"
+                          fontWeight="bold"
+                          textAnchor="middle"
+                          y="2"
+                        >
+                          {getFlightLabel(seg)}
+                        </text>
+                      </g>
+                    </g>
+                  );
+                })}
+              </svg>
+
+              {/* 2. Horizontal Hours Headers */}
+              <div className="timeline-hour-header">
+                {/* Sticky Label cell corner */}
+                <div className="timeline-location-corner">
+                  <span className="timeline-location-corner__label">Locations</span>
                 </div>
 
-                {/* Grid cells representing each trip hour */}
-                <div className="timeline-cells">
+                {/* Scrolling Hours */}
+                <div className="timeline-hour-row">
                   {hoursArray.map((hour) => {
-                    const hourStatus = getHourStatusForLocation(itinerary, loc, hour);
-                    const sleepSuggested = isRecommendedSleepHour(itinerary, hour);
-                    const isPlayhead = hour === currentTripHour;
-                    const periodClassName = `timeline-cell--${hourStatus.timePeriod}`;
-                    const periodIconClassName = `timeline-cell__period-icon--${hourStatus.timePeriod}`;
-
-                    const icon = hourStatus.timePeriod === "day"
-                      ? <Sun className="icon icon--xs icon--amber" />
-                      : hourStatus.timePeriod === "twilight"
-                        ? <div className="timeline-dot timeline-dot--sm timeline-dot--twilight timeline-dot--pulse"></div>
-                        : <Moon className="icon icon--xs icon--purple" />;
-
+                    const isCurrent = hour === safeCurrentTripHour;
                     return (
                       <div
                         key={hour}
-                        id={`cell-${loc.id}-${hour}`}
+                        id={`header-col-${hour}`}
                         onClick={() => handleColumnClick(hour)}
-                        className={`timeline-cell ${periodClassName}${isPlayhead ? " timeline-cell--playhead" : ""}`}
+                        className={`timeline-hour-cell${isCurrent ? " timeline-hour-cell--current" : ""}`}
                       >
-                        {/* Sleep overlay pattern if recommended */}
-                        {sleepSuggested && (
-                          <div 
-                            className="timeline-sleep-overlay"
-                            title="Sleep Window"
-                          ></div>
-                        )}
-
-                        {/* Top corner indicator of day offset (e.g. +1 Day) */}
-                        <div className="timeline-cell__top">
-                          <span className={`timeline-cell__period-icon ${periodIconClassName}`}>
-                            {icon}
-                          </span>
-                          {hourStatus.dayOffset !== 0 && (
-                            <span className="timeline-day-offset">
-                              {hourStatus.dayOffset > 0 ? `+${hourStatus.dayOffset}D` : `${hourStatus.dayOffset}D`}
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Centered Large Hour label */}
-                        <div className="timeline-cell__time">
-                          <span className="timeline-cell__hour">
-                            {hourStatus.formattedTime.split(" ")[0]}
-                          </span>
-                          <span className="timeline-cell__meridiem">
-                            {hourStatus.formattedTime.split(" ")[1]}
-                          </span>
-                        </div>
-
-                        {/* Bottom features (e.g. sleep indicator badge) */}
-                        <div className="timeline-cell__bottom">
-                          <span className="timeline-cell__day">
-                            {hourStatus.dayName.slice(0, 3)}
-                          </span>
-                          {sleepSuggested && (
-                            <Bed className="icon icon--xs icon--purple" />
-                          )}
-                        </div>
+                        <span>
+                          {hour === 0 ? "START" : `H +${hour}`}
+                        </span>
                       </div>
                     );
                   })}
                 </div>
               </div>
-            );
-          })}
 
-          {/* 4. Overlay Playhead Scrubber */}
-          <div
-            aria-hidden="true"
-            className="timeline-playhead"
-            style={playheadStyle}
-          >
-            <div className="timeline-playhead__line"></div>
-          </div>
-          <div
-            aria-hidden="true"
-            className="timeline-playhead-pin"
-            style={playheadStyle}
-          >
-            <div className="timeline-playhead__pin"></div>
-          </div>
+              {/* 3. Timezone rows for each City */}
+              {locations.map((loc) => {
+                return (
+                  <div
+                    key={loc.id}
+                    className="timeline-row"
+                  >
+                    {/* Sticky Row City Label */}
+                    <div className="timeline-location-label">
+                      <div className="timeline-location-name-row">
+                        <span className="timeline-location-name">{getLocationName(loc)}</span>
+                        <span className="timeline-location-code">
+                          {getAirportCode(loc)}
+                        </span>
+                      </div>
+                      <span className="timeline-location-zone">
+                        {formatLocationTimezone(loc)}
+                      </span>
+                    </div>
 
-          {flightTooltip && (
-            <div
-              className="timeline-flight-tooltip"
-              role="tooltip"
-              style={{
-                left: `${flightTooltip.tooltipX}px`,
-                top: `${flightTooltip.tooltipY}px`
-              }}
-            >
-              <div className="timeline-flight-tooltip__eyebrow">Flight path point</div>
-              <div className="timeline-flight-tooltip__title">
-                {flightTooltip.segment.flightNumber}
+                    {/* Grid cells representing each trip hour */}
+                    <div className="timeline-cells">
+                      {hoursArray.map((hour) => {
+                        const hourStatus = getHourStatusForLocation(itinerary, loc, hour);
+                        const sleepSuggested = isRecommendedSleepHour(itinerary, hour);
+                        const isPlayhead = hour === safeCurrentTripHour;
+                        const periodClassName = `timeline-cell--${hourStatus.timePeriod}`;
+                        const periodIconClassName = `timeline-cell__period-icon--${hourStatus.timePeriod}`;
+                        const timeParts = hourStatus.formattedTime.split(" ");
+
+                        const icon = hourStatus.timePeriod === "day"
+                          ? <Sun className="icon icon--xs icon--amber" />
+                          : hourStatus.timePeriod === "twilight"
+                            ? <div className="timeline-dot timeline-dot--sm timeline-dot--twilight timeline-dot--pulse"></div>
+                            : <Moon className="icon icon--xs icon--purple" />;
+
+                        return (
+                          <div
+                            key={hour}
+                            id={`cell-${loc.id}-${hour}`}
+                            onClick={() => handleColumnClick(hour)}
+                            className={`timeline-cell ${periodClassName}${isPlayhead ? " timeline-cell--playhead" : ""}`}
+                          >
+                            {/* Sleep overlay pattern if recommended */}
+                            {sleepSuggested && (
+                              <div
+                                className="timeline-sleep-overlay"
+                                title="Sleep Window"
+                              ></div>
+                            )}
+
+                            {/* Top corner indicator of day offset (e.g. +1 Day) */}
+                            <div className="timeline-cell__top">
+                              <span className={`timeline-cell__period-icon ${periodIconClassName}`}>
+                                {icon}
+                              </span>
+                              {hourStatus.dayOffset !== 0 && (
+                                <span className="timeline-day-offset">
+                                  {hourStatus.dayOffset > 0 ? `+${hourStatus.dayOffset}D` : `${hourStatus.dayOffset}D`}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Centered Large Hour label */}
+                            <div className="timeline-cell__time">
+                              <span className="timeline-cell__hour">
+                                {timeParts[0] ?? "--"}
+                              </span>
+                              <span className="timeline-cell__meridiem">
+                                {timeParts[1] ?? ""}
+                              </span>
+                            </div>
+
+                            {/* Bottom features (e.g. sleep indicator badge) */}
+                            <div className="timeline-cell__bottom">
+                              <span className="timeline-cell__day">
+                                {hourStatus.dayName.slice(0, 3)}
+                              </span>
+                              {sleepSuggested && (
+                                <Bed className="icon icon--xs icon--purple" />
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* 4. Overlay Playhead Scrubber */}
+              <div
+                aria-hidden="true"
+                className="timeline-playhead"
+                style={playheadStyle}
+              >
+                <div className="timeline-playhead__line"></div>
               </div>
-              <div className="timeline-flight-tooltip__route">
-                {flightTooltip.fromLocation.name} ({flightTooltip.fromLocation.code}) to {flightTooltip.toLocation.name} ({flightTooltip.toLocation.code})
+              <div
+                aria-hidden="true"
+                className="timeline-playhead-pin"
+                style={playheadStyle}
+              >
+                <div className="timeline-playhead__pin"></div>
               </div>
 
-              <div className="timeline-flight-tooltip__section">
-                <div className="timeline-flight-tooltip__row">
-                  <span>{flightTooltip.fromLocation.code} local</span>
-                  <strong>{flightTooltip.fromLocalTime.timeLabel}</strong>
+              {flightTooltip && (
+                <div
+                  className="timeline-flight-tooltip"
+                  role="tooltip"
+                  style={{
+                    left: `${flightTooltip.tooltipX}px`,
+                    top: `${flightTooltip.tooltipY}px`
+                  }}
+                >
+                  <div className="timeline-flight-tooltip__eyebrow">Flight path point</div>
+                  <div className="timeline-flight-tooltip__title">
+                    {getFlightLabel(flightTooltip.segment)}
+                  </div>
+                  <div className="timeline-flight-tooltip__route">
+                    {getLocationLabel(flightTooltip.fromLocation)} to {getLocationLabel(flightTooltip.toLocation)}
+                  </div>
+
+                  <div className="timeline-flight-tooltip__section">
+                    <div className="timeline-flight-tooltip__row">
+                      <span>{getAirportCode(flightTooltip.fromLocation)} local</span>
+                      <strong>{flightTooltip.fromLocalTime.timeLabel}</strong>
+                    </div>
+                    <span className="timeline-flight-tooltip__detail">
+                      {flightTooltip.fromLocalTime.dateLabel} | {flightTooltip.fromLocalTime.timezoneLabel}
+                    </span>
+                  </div>
+
+                  <div className="timeline-flight-tooltip__section">
+                    <div className="timeline-flight-tooltip__row">
+                      <span>{getAirportCode(flightTooltip.toLocation)} local</span>
+                      <strong>{flightTooltip.toLocalTime.timeLabel}</strong>
+                    </div>
+                    <span className="timeline-flight-tooltip__detail">
+                      {flightTooltip.toLocalTime.dateLabel} | {flightTooltip.toLocalTime.timezoneLabel}
+                    </span>
+                  </div>
+
+                  <div className="timeline-flight-tooltip__meta">
+                    <span>Trip {flightTooltip.tripElapsedLabel}</span>
+                    <span>{flightTooltip.progressPercent}% through leg</span>
+                  </div>
                 </div>
-                <span className="timeline-flight-tooltip__detail">
-                  {flightTooltip.fromLocalTime.dateLabel} | {flightTooltip.fromLocalTime.timezoneLabel}
+              )}
+            </div>
+          </div>
+
+          {/* Scrubber Range Slider Control */}
+          <div className="timeline-slider-panel">
+            <div className="timeline-slider-header">
+              <span className="timeline-slider-label">
+                <Clock className="icon icon--sm icon--indigo" />
+                <span>Interactive Time Slider:</span>
+                <strong className="timeline-slider-value">Trip {formatDurationFromHours(safeCurrentTripHour)} / {formatDurationFromHours(boundedMaxTripHour)}</strong>
+              </span>
+              <span className="timeline-active-badge">
+                <span className="timeline-active-dot"></span>
+                <span>ACTIVE POSITION</span>
+              </span>
+            </div>
+
+            <input
+              type="range"
+              id="timeline-main-scrubber"
+              min={0}
+              max={boundedMaxTripHour}
+              value={safeCurrentTripHour}
+              onChange={(e) => onSetTripHour(parseInt(e.target.value))}
+              className="timeline-main-range"
+            />
+
+            {/* Dynamic status feedback based on physical position */}
+            <div className="timeline-status">
+              <div className="timeline-status__phase">
+                <span className="timeline-status-label">Current Phase:</span>
+                <span className="timeline-phase-badge">
+                  {(() => {
+                    const stat = getTravelerStatusAtHour(itinerary, safeCurrentTripHour);
+                    if (stat.type === "flight" && stat.flightSegment) {
+                      return (
+                        <>
+                          <Plane className="icon icon--xs icon--indigo is-pulsing" />
+                          <span>In Flight {getFlightLabel(stat.flightSegment)}</span>
+                        </>
+                      );
+                    } else if (stat.type === "layover" && stat.currentLocation) {
+                      return (
+                        <>
+                          <div className="timeline-dot timeline-dot--sm timeline-dot--amber"></div>
+                          <span>Layover in {getLocationLabel(stat.currentLocation)}</span>
+                        </>
+                      );
+                    } else if (stat.type === "destination" && stat.currentLocation) {
+                      return (
+                        <>
+                          <div className="timeline-dot timeline-dot--sm timeline-dot--emerald"></div>
+                          <span>Arrived at {getLocationLabel(stat.currentLocation)}</span>
+                        </>
+                      );
+                    } else if (stat.currentLocation) {
+                      return (
+                        <>
+                          <div className="timeline-dot timeline-dot--sm timeline-dot--indigo"></div>
+                          <span>At Origin in {getLocationLabel(stat.currentLocation)}</span>
+                        </>
+                      );
+                    }
+
+                    return <span>Location unavailable</span>;
+                  })()}
                 </span>
               </div>
 
-              <div className="timeline-flight-tooltip__section">
-                <div className="timeline-flight-tooltip__row">
-                  <span>{flightTooltip.toLocation.code} local</span>
-                  <strong>{flightTooltip.toLocalTime.timeLabel}</strong>
-                </div>
-                <span className="timeline-flight-tooltip__detail">
-                  {flightTooltip.toLocalTime.dateLabel} | {flightTooltip.toLocalTime.timezoneLabel}
+              <div className="timeline-status-times">
+                <span>
+                  Origin Time: <strong>{getHourStatusForLocation(itinerary, locations[0], safeCurrentTripHour).formattedTime}</strong>
                 </span>
-              </div>
-
-              <div className="timeline-flight-tooltip__meta">
-                <span>Trip {flightTooltip.tripElapsedLabel}</span>
-                <span>{flightTooltip.progressPercent}% through leg</span>
+                <span className="timeline-status-divider">|</span>
+                <span>
+                  Destination Time: <strong>{getHourStatusForLocation(itinerary, locations[locations.length - 1], safeCurrentTripHour).formattedTime}</strong>
+                </span>
               </div>
             </div>
-          )}
-        </div>
-      </div>
-
-      {/* Scrubber Range Slider Control */}
-      <div className="timeline-slider-panel">
-        <div className="timeline-slider-header">
-          <span className="timeline-slider-label">
-            <Clock className="icon icon--sm icon--indigo" />
-            <span>Interactive Time Slider:</span>
-            <strong className="timeline-slider-value">Trip Hour {currentTripHour} / {maxTripHour}</strong>
-          </span>
-          <span className="timeline-active-badge">
-            <span className="timeline-active-dot"></span>
-            <span>ACTIVE POSITION</span>
-          </span>
-        </div>
-
-        <input
-          type="range"
-          id="timeline-main-scrubber"
-          min={0}
-          max={maxTripHour}
-          value={currentTripHour}
-          onChange={(e) => onSetTripHour(parseInt(e.target.value))}
-          className="timeline-main-range"
-        />
-
-        {/* Dynamic status feedback based on physical position */}
-        <div className="timeline-status">
-          <div className="timeline-status__phase">
-            <span className="timeline-status-label">Current Phase:</span>
-            <span className="timeline-phase-badge">
-              {(() => {
-                const stat = getTravelerStatusAtHour(itinerary, currentTripHour);
-                if (stat.type === "flight" && stat.flightSegment) {
-                  return (
-                    <>
-                      <Plane className="icon icon--xs icon--indigo is-pulsing" />
-                      <span>In Flight {stat.flightSegment.flightNumber}</span>
-                    </>
-                  );
-                } else if (stat.type === "layover" && stat.currentLocation) {
-                  return (
-                    <>
-                      <div className="timeline-dot timeline-dot--sm timeline-dot--amber"></div>
-                      <span>Layover in {stat.currentLocation.name} ({stat.currentLocation.code})</span>
-                    </>
-                  );
-                } else if (stat.type === "destination" && stat.currentLocation) {
-                  return (
-                    <>
-                      <div className="timeline-dot timeline-dot--sm timeline-dot--emerald"></div>
-                      <span>Arrived at {stat.currentLocation.name} ({stat.currentLocation.code})</span>
-                    </>
-                  );
-                } else {
-                  return (
-                    <>
-                      <div className="timeline-dot timeline-dot--sm timeline-dot--indigo"></div>
-                      <span>At Origin in {stat.currentLocation?.name} ({stat.currentLocation?.code})</span>
-                    </>
-                  );
-                }
-              })()}
-            </span>
           </div>
-
-          <div className="timeline-status-times">
-            <span>
-              Origin Time: <strong>{getHourStatusForLocation(itinerary, itinerary.locations[0], currentTripHour).formattedTime}</strong>
-            </span>
-            <span className="timeline-status-divider">|</span>
-            <span>
-              Destination Time: <strong>{getHourStatusForLocation(itinerary, itinerary.locations[itinerary.locations.length - 1], currentTripHour).formattedTime}</strong>
-            </span>
-          </div>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Itinerary } from "./types";
+import type { Itinerary } from "./types";
 import { travelPresets } from "./data/presets";
 import TimelineVisualizer from "./components/TimelineVisualizer";
 import ItineraryControls from "./components/ItineraryControls";
@@ -8,18 +8,24 @@ import UXPortfolio from "./components/UXPortfolio";
 import ThemeToggle from "./components/ThemeToggle";
 import ItineraryExportMenu from "./components/ItineraryExportMenu";
 import { useThemePreference } from "./hooks/useThemePreference";
-import { getTimelineHorizon } from "./utils/timelineHorizon";
+import { getNetTimezoneShiftHours, getTimelineHorizon } from "./utils/timelineHorizon";
+import { formatDurationFromHours } from "./utils/durationFormat";
+import { getItineraryIssue, getLocationLabel } from "./utils/itineraryDisplay";
 import { Plane, Compass, MapPin, Clock, FileText, Info } from "lucide-react";
 
 export default function App() {
   // Main app states
-  const [currentItinerary, setCurrentItinerary] = useState<Itinerary>(travelPresets[0]);
+  const [currentItinerary, setCurrentItinerary] = useState<Itinerary | null>(travelPresets[0] ?? null);
   const [currentTripHour, setCurrentTripHour] = useState<number>(0);
   const [activeView, setActiveView] = useState<"interactive" | "portfolio">("interactive");
   const { themePreference, resolvedTheme, setThemePreference } = useThemePreference();
 
-  const timelineHorizon = useMemo(() => getTimelineHorizon(currentItinerary), [currentItinerary]);
+  const timelineHorizon = useMemo(
+    () => currentItinerary ? getTimelineHorizon(currentItinerary) : { lastArrivalTripHour: 0, maxTripHour: 24, postArrivalHours: 0 },
+    [currentItinerary]
+  );
   const maxTripHour = timelineHorizon.maxTripHour;
+  const itineraryIssue = getItineraryIssue(currentItinerary);
 
   useEffect(() => {
     setCurrentTripHour((tripHour) => Math.min(tripHour, maxTripHour));
@@ -34,17 +40,28 @@ export default function App() {
     }
   };
 
+  const handleSelectDefaultPreset = () => {
+    const selected = travelPresets[0];
+    if (selected) {
+      setCurrentItinerary(selected);
+      setCurrentTripHour(0);
+    }
+  };
+
   // Helper stats
-  const origin = currentItinerary.locations[0];
-  const destination = currentItinerary.locations[currentItinerary.locations.length - 1];
-  const timezoneShift = destination.offset - origin.offset;
+  const origin = currentItinerary?.locations[0] ?? null;
+  const destination = currentItinerary?.locations[currentItinerary.locations.length - 1] ?? null;
+  const timezoneShift = currentItinerary ? getNetTimezoneShiftHours(currentItinerary) : 0;
+  const timezoneShiftSign = timezoneShift > 0 ? "+" : timezoneShift < 0 ? "-" : "";
+  const timezoneShiftLabel = timezoneShiftSign + formatDurationFromHours(Math.abs(timezoneShift));
+  const journeyName = currentItinerary?.name?.trim() || "No itinerary selected";
 
   return (
     <div className="app-shell">
       {/* 1. Global Navigation / Header Banner */}
       <header className="app-header">
         <div className="app-header__inner">
-          
+
           {/* Logo & Subtitle */}
           <div className="app-brand">
             <div className="app-brand__mark">
@@ -62,11 +79,13 @@ export default function App() {
           </div>
 
           <div className="app-header__actions">
-            <ItineraryExportMenu
-              itinerary={currentItinerary}
-              currentTripHour={currentTripHour}
-              maxTripHour={maxTripHour}
-            />
+            {currentItinerary && (
+              <ItineraryExportMenu
+                itinerary={currentItinerary}
+                currentTripHour={currentTripHour}
+                maxTripHour={maxTripHour}
+              />
+            )}
             <ThemeToggle
               value={themePreference}
               resolvedTheme={resolvedTheme}
@@ -78,87 +97,111 @@ export default function App() {
 
       {/* 2. Primary Layout Main Content */}
       <main className="app-main">
-        
+
         {/* INTERACTIVE HUB MODE */}
         {activeView === "interactive" && (
           <div className="app-panel-stack">
-            
-            {/* Quick Stats Panel */}
-            <div className="app-stats-grid">
-              <div className="app-stat-card">
-                <span className="app-stat-card__label">Active Journey</span>
-                <span className="app-stat-card__value app-stat-card__value--truncate">
-                  {currentItinerary.name}
-                </span>
+            {!currentItinerary ? (
+              <div className="app-empty-state" role="status">
+                <h2>No itinerary selected</h2>
+                <p>Select a preset to begin, or add itinerary data before opening the timeline.</p>
+                {travelPresets.length > 0 && (
+                  <button className="header-action-button" onClick={handleSelectDefaultPreset}>
+                    <Compass className="icon icon--sm" />
+                    <span>Load First Preset</span>
+                  </button>
+                )}
               </div>
-              
-              <div className="app-stat-card">
-                <span className="app-stat-card__label">Origin Location</span>
-                <span className="app-stat-card__value app-stat-card__value--inline">
-                  <MapPin className="icon icon--sm icon--muted" />
-                  {origin.name} ({origin.code})
-                </span>
-              </div>
+            ) : (
+              <>
+                {/* Quick Stats Panel */}
+                <div className="app-stats-grid">
+                  <div className="app-stat-card">
+                    <span className="app-stat-card__label">Active Journey</span>
+                    <span className="app-stat-card__value app-stat-card__value--truncate">
+                      {journeyName}
+                    </span>
+                  </div>
 
-              <div className="app-stat-card">
-                <span className="app-stat-card__label">Destination Location</span>
-                <span className="app-stat-card__value app-stat-card__value--inline">
-                  <MapPin className="icon icon--sm icon--muted" />
-                  {destination.name} ({destination.code})
-                </span>
-              </div>
+                  <div className="app-stat-card">
+                    <span className="app-stat-card__label">Origin Location</span>
+                    <span className="app-stat-card__value app-stat-card__value--inline">
+                      <MapPin className="icon icon--sm icon--muted" />
+                      {getLocationLabel(origin)}
+                    </span>
+                  </div>
 
-              <div className="app-stat-card">
-                <span className="app-stat-card__label">Total Offset Shift</span>
-                <span className="app-stat-card__value app-stat-card__value--inline">
-                  <Clock className="icon icon--sm icon--indigo" />
-                  {timezoneShift > 0 ? `+${timezoneShift}` : timezoneShift} Hours Shift
-                </span>
-              </div>
-            </div>
+                  <div className="app-stat-card">
+                    <span className="app-stat-card__label">Destination Location</span>
+                    <span className="app-stat-card__value app-stat-card__value--inline">
+                      <MapPin className="icon icon--sm icon--muted" />
+                      {destination ? getLocationLabel(destination) : "Destination unavailable"}
+                    </span>
+                  </div>
 
-            {/* Split Screen Layout */}
-            <div className="app-content-grid">
-              
-              {/* Left Column (Timeline Visualizer & Dynamic QA Panel) */}
-              <div className="app-content-primary">
-                
-                {/* Embedded Information Alert about daylight & sleep */}
-                <div className="app-info-alert">
-                  <Info className="icon app-info-alert__icon" />
-                  <div>
-                    <span className="app-info-alert__title">Double-Encoded Information</span>
-                    Our timezone grid visualizes daylight levels and suggests physiological rest phases based on target circadian rhythms. Slide the scrubber to experience space-time changes.
+                  <div className="app-stat-card">
+                    <span className="app-stat-card__label">Total Offset Shift</span>
+                    <span className="app-stat-card__value app-stat-card__value--inline">
+                      <Clock className="icon icon--sm icon--indigo" />
+                      {timezoneShiftLabel} Shift
+                    </span>
                   </div>
                 </div>
 
-                {/* The Timeline Canvas Row Grid */}
-                <TimelineVisualizer
-                  itinerary={currentItinerary}
-                  currentTripHour={currentTripHour}
-                  onSetTripHour={setCurrentTripHour}
-                  maxTripHour={maxTripHour}
-                />
+                {itineraryIssue && (
+                  <div className="app-info-alert" role="status">
+                    <Info className="icon app-info-alert__icon" />
+                    <div>
+                      <span className="app-info-alert__title">Timeline needs more data</span>
+                      {itineraryIssue}
+                    </div>
+                  </div>
+                )}
 
-                {/* The Dynamic Q&A Panel */}
-                <DynamicQAPanel
-                  itinerary={currentItinerary}
-                  currentTripHour={currentTripHour}
-                  maxTripHour={maxTripHour}
-                  onSetTripHour={setCurrentTripHour}
-                />
-              </div>
+                {/* Split Screen Layout */}
+                <div className="app-content-grid">
 
-              {/* Right Column (Itinerary Configs & Controls) */}
-              <div className="app-content-aside">
-                <ItineraryControls
-                  currentItinerary={currentItinerary}
-                  onUpdateItinerary={setCurrentItinerary}
-                  onSelectPreset={handleSelectPreset}
-                />
-              </div>
+                  {/* Left Column (Timeline Visualizer & Dynamic QA Panel) */}
+                  <div className="app-content-primary">
 
-            </div>
+                    {/* Embedded Information Alert about daylight & sleep */}
+                    <div className="app-info-alert">
+                      <Info className="icon app-info-alert__icon" />
+                      <div>
+                        <span className="app-info-alert__title">Double-Encoded Information</span>
+                        Our timezone grid visualizes daylight levels and suggests physiological rest phases based on target circadian rhythms. Slide the scrubber to experience space-time changes.
+                      </div>
+                    </div>
+
+                    {/* The Timeline Canvas Row Grid */}
+                    <TimelineVisualizer
+                      itinerary={currentItinerary}
+                      currentTripHour={currentTripHour}
+                      onSetTripHour={setCurrentTripHour}
+                      maxTripHour={maxTripHour}
+                    />
+
+                    {/* The Dynamic Q&A Panel */}
+                    <DynamicQAPanel
+                      itinerary={currentItinerary}
+                      currentTripHour={currentTripHour}
+                      maxTripHour={maxTripHour}
+                      onSetTripHour={setCurrentTripHour}
+                    />
+                  </div>
+
+                  {/* Right Column (Itinerary Configs & Controls) */}
+                  <div className="app-content-aside">
+                    <ItineraryControls
+                      currentItinerary={currentItinerary}
+                      onUpdateItinerary={setCurrentItinerary}
+                      onSelectPreset={handleSelectPreset}
+                    />
+                  </div>
+
+                </div>
+              </>
+            )}
           </div>
         )}
 

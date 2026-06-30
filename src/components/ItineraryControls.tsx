@@ -17,6 +17,19 @@ import {
   TIMELINE_POST_ARRIVAL_HOUR_MIN
 } from "../utils/timelineHorizon";
 import {
+  formatDurationFromHours,
+  formatDurationMinutes,
+  minutesToDecimalHours,
+  resolveSegmentDurationHours,
+  resolveSegmentDurationMinutes
+} from "../utils/durationFormat";
+import {
+  formatCoordinatesLabel,
+  getAirportCode,
+  getLocationName,
+  getSafeNumber
+} from "../utils/itineraryDisplay";
+import {
   Plus,
   Trash2,
   MapPin,
@@ -50,19 +63,12 @@ const formatUtcOffsetHours = (offset: number) => {
 };
 
 const getOffsetOptions = (currentOffset: number) => {
-  if (BASE_OFFSET_OPTIONS.includes(currentOffset)) {
+  const safeOffset = getSafeNumber(currentOffset);
+  if (BASE_OFFSET_OPTIONS.includes(safeOffset)) {
     return BASE_OFFSET_OPTIONS;
   }
 
-  return [...BASE_OFFSET_OPTIONS, currentOffset].sort((a, b) => a - b);
-};
-
-const formatElapsedHours = (hours: number) => {
-  const totalMinutes = Math.round(hours * 60);
-  const wholeHours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-
-  return minutes === 0 ? wholeHours + "h" : wholeHours + "h " + String(minutes).padStart(2, "0") + "m";
+  return [...BASE_OFFSET_OPTIONS, safeOffset].sort((a, b) => a - b);
 };
 
 const getAirportOptionLabel = (airport: AviationAirportSuggestion) => airport.displayLabel;
@@ -115,6 +121,7 @@ const mapAirportToLocation = (
     ...location,
     airportName: airport.airportName ?? location.airportName,
     code: primaryCode.toUpperCase(),
+    coordinates: airport.coordinates ?? location.coordinates,
     countryCode: airport.countryCode ?? location.countryCode,
     iataCode: airport.airportCode.iata ?? location.iataCode,
     icaoCode: airport.airportCode.icao ?? location.icaoCode,
@@ -177,7 +184,9 @@ export default function ItineraryControls({
   const timelineHorizon = getTimelineHorizon(currentItinerary);
   const maxSegmentTripHour = Math.max(
     36,
-    ...currentItinerary.segments.map((segment) => Math.ceil(segment.departureTripHour + segment.duration + 4))
+    ...currentItinerary.segments
+      .map((segment) => Math.ceil(getSafeNumber(segment.departureTripHour) + resolveSegmentDurationHours(segment) + 4))
+      .filter(Number.isFinite)
   );
 
   // Handle Preset change
@@ -247,7 +256,7 @@ export default function ItineraryControls({
       name: "New City",
       code: "NEW",
       timezoneLabel: "GMT",
-      offset: (lastLoc?.offset || 0) + 1
+      offset: getSafeNumber(lastLoc?.offset) + 1
     };
     updateItinerary({
       locations: [...currentItinerary.locations, newLoc]
@@ -278,6 +287,29 @@ export default function ItineraryControls({
     updateItinerary({ segments: updatedSegments });
   };
 
+  const handleDurationPartChange = (segmentId: string, part: "hours" | "minutes", value: number) => {
+    const updatedSegments = currentItinerary.segments.map((segment) => {
+      if (segment.id !== segmentId) {
+        return segment;
+      }
+
+      const currentMinutes = resolveSegmentDurationMinutes(segment);
+      const currentHoursPart = Math.floor(currentMinutes / 60);
+      const currentMinutesPart = currentMinutes % 60;
+      const nextHoursPart = part === "hours" ? Math.max(0, value) : currentHoursPart;
+      const nextMinutesPart = part === "minutes" ? Math.min(59, Math.max(0, value)) : currentMinutesPart;
+      const durationMinutes = nextHoursPart * 60 + nextMinutesPart;
+
+      return {
+        ...segment,
+        duration: minutesToDecimalHours(durationMinutes),
+        durationMinutes
+      };
+    });
+
+    updateItinerary({ segments: updatedSegments });
+  };
+
   const handleFlightSelect = (segmentId: string, flight: AviationFlightSuggestion) => {
     const segment = currentItinerary.segments.find((item) => item.id === segmentId);
     if (!segment) {
@@ -303,9 +335,8 @@ export default function ItineraryControls({
         return item;
       }
 
-      const durationHours = flight.schedule.durationMinutes
-        ? Number((flight.schedule.durationMinutes / 60).toFixed(2))
-        : item.duration;
+      const durationMinutes = flight.schedule.durationMinutes ?? resolveSegmentDurationMinutes(item);
+      const durationHours = minutesToDecimalHours(durationMinutes);
 
       return {
         ...item,
@@ -315,10 +346,24 @@ export default function ItineraryControls({
         arrivalLabel: formatScheduleLabel(flight.destination, flight.schedule.arrival.local) ?? item.arrivalLabel,
         departureLabel: formatScheduleLabel(flight.origin, flight.schedule.departure.local) ?? item.departureLabel,
         duration: durationHours,
-        durationMinutes: flight.schedule.durationMinutes ?? item.durationMinutes,
+        durationMinutes,
         flightNumber: flight.flight.flightNumber ?? item.flightNumber,
         fromLocationId: originLocationId,
         rawStatus: flight.flight.rawStatus ?? item.rawStatus,
+        schedule: {
+          departure: {
+            localDateTime: flight.schedule.departure.local ?? undefined,
+            utcDateTime: flight.schedule.departure.utc ?? undefined,
+            timezoneIana: flight.origin.timezone.iana ?? undefined,
+            utcOffsetHours: flight.origin.timezone.utcOffsetHours ?? undefined
+          },
+          arrival: {
+            localDateTime: flight.schedule.arrival.local ?? undefined,
+            utcDateTime: flight.schedule.arrival.utc ?? undefined,
+            timezoneIana: flight.destination.timezone.iana ?? undefined,
+            utcOffsetHours: flight.destination.timezone.utcOffsetHours ?? undefined
+          }
+        },
         scheduledArrival: flight.schedule.arrival.utc ?? flight.schedule.arrival.local ?? item.scheduledArrival,
         scheduledDeparture: flight.schedule.departure.utc ?? flight.schedule.departure.local ?? item.scheduledDeparture,
         status: flight.flight.status ?? item.status,
@@ -339,7 +384,7 @@ export default function ItineraryControls({
     const lastSegment = currentItinerary.segments[currentItinerary.segments.length - 1];
     
     // Auto-compute reasonable start hour
-    const startHour = lastSegment ? lastSegment.departureTripHour + lastSegment.duration + 4 : 2;
+    const startHour = lastSegment ? getSafeNumber(lastSegment.departureTripHour) + resolveSegmentDurationHours(lastSegment) + 4 : 2;
     
     const newSegment: FlightSegment = {
       id: newId,
@@ -348,6 +393,7 @@ export default function ItineraryControls({
       toLocationId: currentItinerary.locations[currentItinerary.locations.length - 1].id,
       departureTripHour: startHour,
       duration: 5,
+      durationMinutes: 300,
     };
     updateItinerary({
       segments: [...currentItinerary.segments, newSegment]
@@ -445,7 +491,7 @@ export default function ItineraryControls({
                         {preset.name}
                       </h3>
                       <span className={`preset-card__route${isActivePreset ? " preset-card__route--active" : ""}`}>
-                        {preset.locations.map(l => l.code).join(" → ")}
+                        {preset.locations.map(l => getAirportCode(l)).join(" → ") || "Route unavailable"}
                       </span>
                     </div>
                     <p className="preset-card__description">
@@ -536,7 +582,7 @@ export default function ItineraryControls({
                     id="input-timeline-resolved-window"
                     type="text"
                     readOnly
-                    value={`Arrival + ${timelineHorizon.postArrivalHours}h`}
+                    value={`Arrival + ${formatDurationFromHours(timelineHorizon.postArrivalHours)}`}
                     className="form-input form-input--readonly form-input--strong"
                   />
                 </div>
@@ -544,7 +590,7 @@ export default function ItineraryControls({
 
               <div className="field--full">
                 <label className="field-label" htmlFor="select-post-arrival-hours">
-                  Custom Post-Arrival Hours
+                  Custom Post-Arrival Duration
                 </label>
                 <select
                   id="select-post-arrival-hours"
@@ -554,14 +600,14 @@ export default function ItineraryControls({
                   disabled={timelinePreferences.postArrivalMode !== "custom"}
                 >
                   {POST_ARRIVAL_HOUR_OPTIONS.map((hour) => (
-                    <option key={hour} value={hour}>{hour}h</option>
+                    <option key={hour} value={hour}>{formatDurationFromHours(hour)}</option>
                   ))}
                 </select>
               </div>
 
               <div className="timeline-range-summary">
-                <span>Final arrival: {formatElapsedHours(timelineHorizon.lastArrivalTripHour)}</span>
-                <span>Timeline ends: Trip Hour {timelineHorizon.maxTripHour}</span>
+                <span>Final arrival: {formatDurationFromHours(timelineHorizon.lastArrivalTripHour)}</span>
+                <span>Timeline ends: Trip {formatDurationFromHours(timelineHorizon.maxTripHour)}</span>
               </div>
             </div>
           </div>
@@ -666,7 +712,7 @@ export default function ItineraryControls({
                       <label className="field-label field-label--compact">Timezone</label>
                       <input
                         type="text"
-                        value={loc.timezoneIana ?? loc.timezoneLabel}
+                        value={loc.timezoneIana ?? loc.timezoneLabel ?? ""}
                         onChange={(e) => handleTimezoneChange(idx, e.target.value)}
                         className="form-input form-input--compact"
                         placeholder="America/Chicago"
@@ -676,7 +722,7 @@ export default function ItineraryControls({
                     <div className="field--offset">
                       <label className="field-label field-label--compact">UTC Offset</label>
                       <select
-                        value={loc.offset}
+                        value={getSafeNumber(loc.offset)}
                         onChange={(e) => handleLocationChange(idx, "offset", parseFloat(e.target.value))}
                         className="form-input form-input--compact"
                       >
@@ -686,6 +732,16 @@ export default function ItineraryControls({
                           </option>
                         ))}
                       </select>
+                    </div>
+
+                    <div className="field--full">
+                      <label className="field-label field-label--compact">Coordinates</label>
+                      <input
+                        type="text"
+                        value={formatCoordinatesLabel(loc)}
+                        readOnly
+                        className="form-input form-input--compact form-input--readonly"
+                      />
                     </div>
                   </div>
                 </div>
@@ -779,16 +835,32 @@ export default function ItineraryControls({
                       </div>
 
                       <div>
-                        <label className="field-label field-label--compact">Duration (Hours)</label>
-                        <input
-                          type="number"
-                          min={1}
-                          max={20}
-                          step={0.05}
-                          value={seg.duration}
-                          onChange={(e) => handleSegmentChange(seg.id, "duration", Math.max(1, parseFloat(e.target.value) || 1))}
-                          className="form-input form-input--compact form-input--strong"
-                        />
+                        <label className="field-label field-label--compact">Duration</label>
+                        <div className="duration-input-group">
+                          <input
+                            aria-label={`Flight ${idx + 1} duration hours`}
+                            type="number"
+                            min={0}
+                            max={48}
+                            step={1}
+                            value={Math.floor(resolveSegmentDurationMinutes(seg) / 60)}
+                            onChange={(e) => handleDurationPartChange(seg.id, "hours", parseInt(e.target.value) || 0)}
+                            className="form-input form-input--compact form-input--strong"
+                          />
+                          <span className="duration-input-group__unit">h</span>
+                          <input
+                            aria-label={`Flight ${idx + 1} duration minutes`}
+                            type="number"
+                            min={0}
+                            max={59}
+                            step={1}
+                            value={resolveSegmentDurationMinutes(seg) % 60}
+                            onChange={(e) => handleDurationPartChange(seg.id, "minutes", parseInt(e.target.value) || 0)}
+                            className="form-input form-input--compact form-input--strong"
+                          />
+                          <span className="duration-input-group__unit">m</span>
+                        </div>
+                        <span className="field-helper">{formatDurationMinutes(resolveSegmentDurationMinutes(seg))}</span>
                       </div>
 
                       <div>
@@ -799,7 +871,7 @@ export default function ItineraryControls({
                           className="form-input form-input--compact"
                         >
                           {currentItinerary.locations.map(l => (
-                            <option key={l.id} value={l.id}>{l.name} ({l.code})</option>
+                            <option key={l.id} value={l.id}>{getLocationName(l)} ({getAirportCode(l)})</option>
                           ))}
                         </select>
                       </div>
@@ -812,7 +884,7 @@ export default function ItineraryControls({
                           className="form-input form-input--compact"
                         >
                           {currentItinerary.locations.map(l => (
-                            <option key={l.id} value={l.id}>{l.name} ({l.code})</option>
+                            <option key={l.id} value={l.id}>{getLocationName(l)} ({getAirportCode(l)})</option>
                           ))}
                         </select>
                       </div>
@@ -841,14 +913,14 @@ export default function ItineraryControls({
 
                       <div className="field--full">
                         <label className="field-label field-label--compact">
-                          Departure Trip Hour: <span className="highlight-value">{formatElapsedHours(seg.departureTripHour)}</span>
+                          Departure: <span className="highlight-value">Trip {formatDurationFromHours(seg.departureTripHour)}</span>
                         </label>
                         <input
                           type="range"
                           min={0}
                           max={maxSegmentTripHour}
                           step={0.25}
-                          value={seg.departureTripHour}
+                          value={getSafeNumber(seg.departureTripHour)}
                           onChange={(e) => handleSegmentChange(seg.id, "departureTripHour", parseFloat(e.target.value))}
                           className="range-input"
                         />

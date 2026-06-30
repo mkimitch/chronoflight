@@ -98,7 +98,7 @@ export default function UXPortfolio() {
           </p>
           <ul className="portfolio-list">
             <li>
-              <strong>Scrubbable Playhead (The Scrubber):</strong> A prominent vertical slider represents "Current Trip Hour". Sliding it changes the HUD text dynamically, simulating the traveler’s body moving through space-time.
+              <strong>Scrubbable Playhead (The Scrubber):</strong> A prominent vertical slider represents "Current Trip Time". Sliding it changes the HUD text dynamically, simulating the traveler’s body moving through space-time.
             </li>
             <li>
               <strong>The "Biological State" Advisor:</strong> As the scrubber moves, a status card flashes: <em>"You should feel like it's 2 PM, but the sun is rising in Athens. Sleep now to bypass 4 hours of jetlag."</em>
@@ -129,7 +129,7 @@ export default function UXPortfolio() {
               <strong>High Contrast Ratios (WCAG AA):</strong> Text must have at least 4.5:1 contrast against the yellow, gray, and purple bands. We use deep charcoal text instead of white text on colored backgrounds.
             </li>
             <li>
-              <strong>Screen Reader Screenplay:</strong> Standard HTML tables read row-by-row, which breaks chronological timelines. We use custom aria-labels: <em>"Flight AC8102 departs Montreal at 7 PM EDT, arriving Athens at 10 AM EEST. Flight duration is 8 hours."</em>
+              <strong>Screen Reader Screenplay:</strong> Standard HTML tables read row-by-row, which breaks chronological timelines. We use custom aria-labels: <em>"Flight AC8102 departs Montreal at 7 PM EDT, arriving Athens at 10 AM EEST. Flight duration is 8h."</em>
             </li>
             <li>
               <strong>Keyboard Traversal:</strong> Enable standard Arrow Left/Right to slide the playhead, adjusting the timeline hour-by-hour with screen-reader feedback of local time updates.
@@ -151,7 +151,7 @@ export default function UXPortfolio() {
               <strong>Widescreen Desktop HUD:</strong> Take advantage of high horizontal space by pinning the travel routes alongside an extensive itinerary builder sidebar and daylight statistics visualization charts.
             </li>
             <li>
-              <strong>Mobile Vertical Chronological Feed:</strong> On small screens, rotate the axis! Display a vertical chronological card deck. Each card represents a key event: <em>"08:00 AM Departure"</em>, <em>"12:00 PM Arrival"</em>, <em>"7 Hour Layover"</em>. Include a swipeable mini-grid on each card.
+              <strong>Mobile Vertical Chronological Feed:</strong> On small screens, rotate the axis! Display a vertical chronological card deck. Each card represents a key event: <em>"08:00 AM Departure"</em>, <em>"12:00 PM Arrival"</em>, <em>"7h Layover"</em>. Include a swipeable mini-grid on each card.
             </li>
             <li>
               <strong>Responsive Swipable Lanes:</strong> If maintaining horizontal view, lock the left column (city labels) and allow the timeline grid to scroll horizontally with sticky flight connection lines.

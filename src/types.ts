@@ -1,16 +1,41 @@
-export interface LocationConfig {
-  id: string;
-  name: string;
+export type IanaTimezoneId = string;
+export type IsoDateTime = string;
+export type UtcOffsetHours = number;
+
+export interface AirportCoordinates {
+  latitude: number;
+  longitude: number;
+}
+
+export interface AirportConfig {
   airportName?: string;
   code: string;
   iataCode?: string;
   icaoCode?: string;
-  timezoneLabel: string; // e.g. "CDT", "EDT", "EEST", or an IANA timezone from API autofill
-  timezoneIana?: string;
-  offset: number; // UTC offset in hours (can be half-hours, e.g. 5.5)
   countryCode?: string;
+  coordinates?: AirportCoordinates;
   latitude?: number;
   longitude?: number;
+}
+
+export interface LocationConfig extends AirportConfig {
+  id: string;
+  name: string;
+  timezoneIana?: IanaTimezoneId; // Preferred canonical timezone, e.g. "America/Chicago".
+  timezoneLabel: string; // Display cache, e.g. "CDT", "BST", or an IANA fallback.
+  offset: UtcOffsetHours; // Intentionally cached UTC offset for timeline math at this itinerary date.
+}
+
+export interface FlightScheduleMoment {
+  localDateTime?: IsoDateTime;
+  utcDateTime?: IsoDateTime;
+  timezoneIana?: IanaTimezoneId;
+  utcOffsetHours?: UtcOffsetHours;
+}
+
+export interface FlightSegmentSchedule {
+  departure?: FlightScheduleMoment;
+  arrival?: FlightScheduleMoment;
 }
 
 export interface FlightSegment {
@@ -26,12 +51,13 @@ export interface FlightSegment {
   note?: string;
   operatedBy?: string;
   rawStatus?: string;
+  schedule?: FlightSegmentSchedule;
   scheduledArrival?: string;
   scheduledDeparture?: string;
   status?: string;
   toLocationId: string;
-  departureTripHour: number; // hours from trip start
-  duration: number; // flight duration in hours
+  departureTripHour: number; // Intentionally cached hours from trip start for current timeline rendering.
+  duration: number; // Intentionally cached flight duration in hours for current timeline rendering.
 }
 
 export interface SleepWindow {
@@ -55,9 +81,9 @@ export interface AviationAirportCode {
 }
 
 export interface AviationTimezone {
-  iana: string | null;
+  iana: IanaTimezoneId | null;
   utcOffset: string | null;
-  utcOffsetHours: number | null;
+  utcOffsetHours: UtcOffsetHours | null;
 }
 
 export interface AviationAirportSuggestion {
@@ -114,6 +140,29 @@ export interface AviationFlightSuggestion {
   };
 }
 
+export type TimelineEventType =
+  | "airport-arrival"
+  | "boarding"
+  | "departure"
+  | "arrival"
+  | "layover"
+  | "sleep-window"
+  | "meal"
+  | "note"
+  | "custom";
+
+export interface TimelineEvent {
+  id: string;
+  type: TimelineEventType;
+  title: string;
+  description?: string;
+  tripHour: number;
+  endTripHour?: number;
+  locationId?: string;
+  segmentId?: string;
+  localDateTime?: IsoDateTime;
+}
+
 export interface Itinerary {
   id: string;
   name: string;
@@ -134,6 +183,7 @@ export interface Itinerary {
   startDayName: string; // e.g. "Monday"
   locations: LocationConfig[];
   segments: FlightSegment[];
+  timelineEvents?: TimelineEvent[];
   timelinePreferences?: TimelinePreferences;
   sleepPreferences: {
     targetBedtime: number; // 0-23, e.g. 22 (10 PM)

@@ -1,23 +1,33 @@
 import React, { useState } from "react";
-import { Itinerary } from "../types";
-import { 
-  getHourStatusForLocation, 
-  getTravelerStatusAtHour, 
+import type { Itinerary } from "../types";
+import {
+  getHourStatusForLocation,
+  getTravelerStatusAtHour,
   isRecommendedSleepHour,
-  calculateDaylightSummary,
-  formatLocalHour
+  calculateDaylightSummary
 } from "../utils/timezoneMath";
-import { 
-  HelpCircle, 
-  ChevronRight, 
-  ChevronDown, 
-  MapPin, 
-  Moon, 
-  Sun, 
-  Clock, 
-  Compass, 
-  Bed, 
-  Coffee 
+import { formatDurationFromHours } from "../utils/durationFormat";
+import {
+  getAirportCode,
+  getLocationLabel,
+  getLocationName,
+  getLocationOffset,
+  getRenderableSegments,
+  getSegmentArrivalTripHour,
+  getSegmentDepartureTripHour,
+  getSegmentDurationHours
+} from "../utils/itineraryDisplay";
+import {
+  HelpCircle,
+  ChevronRight,
+  ChevronDown,
+  MapPin,
+  Moon,
+  Sun,
+  Clock,
+  Compass,
+  Bed,
+  Coffee
 } from "lucide-react";
 
 interface DynamicQAPanelProps {
@@ -36,16 +46,18 @@ export default function DynamicQAPanel({
   const [openQuestion, setOpenQuestion] = useState<string | null>("q1");
 
   const travelerStatus = getTravelerStatusAtHour(itinerary, currentTripHour);
-  const origin = itinerary.locations[0];
-  const destination = itinerary.locations[itinerary.locations.length - 1];
+  const origin = itinerary.locations[0] ?? null;
+  const destination = itinerary.locations[itinerary.locations.length - 1] ?? null;
+  const renderableSegments = getRenderableSegments(itinerary);
 
   // Calculations for current status
   const currentLocalStatus = travelerStatus.currentLocation
     ? getHourStatusForLocation(itinerary, travelerStatus.currentLocation, currentTripHour)
     : null;
 
-  const destinationStatus = getHourStatusForLocation(itinerary, destination, currentTripHour);
-  const originStatus = getHourStatusForLocation(itinerary, origin, currentTripHour);
+  const destinationStatus = destination
+    ? getHourStatusForLocation(itinerary, destination, currentTripHour)
+    : null;
   const { daylightHours, twilightHours, nightHours } = calculateDaylightSummary(itinerary, maxTripHour);
 
   // Helper to jump the scrubber to a specific event
@@ -57,6 +69,20 @@ export default function DynamicQAPanel({
     setOpenQuestion(openQuestion === id ? null : id);
   };
 
+  if (!origin) {
+    return (
+      <div className="qa-card">
+        <div className="qa-header">
+          <HelpCircle className="icon icon--indigo" />
+          <h2>Travel Advisor</h2>
+        </div>
+        <div className="empty-state" role="status">
+          <p className="empty-state__copy">Add at least one airport to unlock travel guidance.</p>
+        </div>
+      </div>
+    );
+  }
+
   // Questions and Answers data
   const questionsList = [
     {
@@ -66,28 +92,33 @@ export default function DynamicQAPanel({
       answer: () => {
         if (travelerStatus.type === "flight" && travelerStatus.flightSegment) {
           const flight = travelerStatus.flightSegment;
-          const fromLoc = itinerary.locations.find(l => l.id === flight.fromLocationId)!;
-          const toLoc = itinerary.locations.find(l => l.id === flight.toLocationId)!;
+          const fromLoc = itinerary.locations.find(l => l.id === flight.fromLocationId);
+          const toLoc = itinerary.locations.find(l => l.id === flight.toLocationId);
+
+          if (!fromLoc || !toLoc) {
+            return <p>This flight is missing route airport data.</p>;
+          }
+
           return (
             <div className="qa-stack qa-stack--compact">
               <p>
-                You are currently in flight <strong className="qa-emphasis">{flight.flightNumber}</strong>, cruising from <strong>{fromLoc.name} ({fromLoc.code})</strong> to <strong>{toLoc.name} ({toLoc.code})</strong>.
+                You are currently in flight <strong className="qa-emphasis">{flight.flightNumber || "Flight"}</strong>, cruising from <strong>{getLocationLabel(fromLoc)}</strong> to <strong>{getLocationLabel(toLoc)}</strong>.
               </p>
               <div className="qa-flight-summary">
                 <div>
-                  <span className="qa-meta-label">Origin Time ({fromLoc.code})</span>
+                  <span className="qa-meta-label">Origin Time ({getAirportCode(fromLoc)})</span>
                   <strong className="qa-flight-summary__time">{getHourStatusForLocation(itinerary, fromLoc, currentTripHour).formattedTime}</strong>
                 </div>
                 <div className="qa-flight-summary__divider"></div>
                 <div>
-                  <span className="qa-meta-label">Destination Time ({toLoc.code})</span>
+                  <span className="qa-meta-label">Destination Time ({getAirportCode(toLoc)})</span>
                   <strong className="qa-flight-summary__time">{getHourStatusForLocation(itinerary, toLoc, currentTripHour).formattedTime}</strong>
                 </div>
                 <div className="qa-flight-summary__divider"></div>
                 <div>
                   <span className="qa-meta-label">Cruise Progress</span>
                   <strong className="qa-flight-summary__time">
-                    {Math.round(((currentTripHour - flight.departureTripHour) / flight.duration) * 100)}%
+                    {Math.round(((currentTripHour - getSegmentDepartureTripHour(flight)) / getSegmentDurationHours(flight)) * 100)}%
                   </strong>
                 </div>
               </div>
@@ -96,7 +127,7 @@ export default function DynamicQAPanel({
         } else if (currentLocalStatus) {
           return (
             <p>
-              You are physically in <strong className="qa-emphasis">{travelerStatus.currentLocation?.name}</strong>. Your watch is synchronized to local time: <strong className="qa-inline-time">{currentLocalStatus.formattedTime}</strong> ({currentLocalStatus.dayName}).
+              You are physically in <strong className="qa-emphasis">{getLocationName(travelerStatus.currentLocation)}</strong>. Your watch is synchronized to local time: <strong className="qa-inline-time">{currentLocalStatus.formattedTime}</strong> ({currentLocalStatus.dayName}).
             </p>
           );
         }
@@ -107,38 +138,47 @@ export default function DynamicQAPanel({
       id: "q2",
       icon: <Clock className="icon icon--emerald" />,
       question: "What local time will it be at my final destination?",
-      answer: () => (
-        <div className="qa-stack qa-stack--compact">
-          <p>
-            At current trip hour <span className="qa-mono-pill">{currentTripHour}</span>, the local time in <strong>{destination.name} ({destination.timezoneLabel})</strong> is:
-          </p>
-          <div className="qa-destination-card">
-            <div>
-              <span className="qa-destination-card__label">Destination Clock</span>
-              <div className="qa-destination-card__time">
-                {destinationStatus.formattedTime}
+      answer: () => {
+        if (!destination || !destinationStatus) {
+          return <p>Add a destination airport to calculate destination time.</p>;
+        }
+
+        return (
+          <div className="qa-stack qa-stack--compact">
+            <p>
+              At <span className="qa-mono-pill">Trip {formatDurationFromHours(currentTripHour)}</span>, the local time in <strong>{getLocationLabel(destination)}</strong> is:
+            </p>
+            <div className="qa-destination-card">
+              <div>
+                <span className="qa-destination-card__label">Destination Clock</span>
+                <div className="qa-destination-card__time">
+                  {destinationStatus.formattedTime}
+                </div>
+                <span className="qa-destination-card__day">{destinationStatus.dayName} {destinationStatus.dayOffset > 0 ? `(+${destinationStatus.dayOffset} day)` : ""}</span>
               </div>
-              <span className="qa-destination-card__day">{destinationStatus.dayName} {destinationStatus.dayOffset > 0 ? `(+${destinationStatus.dayOffset} day)` : ""}</span>
+              <button
+                onClick={() => {
+                  const firstSeg = renderableSegments[0];
+                  if (firstSeg) jumpToEvent(getSegmentDepartureTripHour(firstSeg));
+                }}
+                className="qa-action-button"
+              >
+                Back to Start
+              </button>
             </div>
-            <button 
-              onClick={() => {
-                // If there is a segment, jump to departure
-                const firstSeg = itinerary.segments[0];
-                if (firstSeg) jumpToEvent(firstSeg.departureTripHour);
-              }}
-              className="qa-action-button"
-            >
-              Back to Start
-            </button>
           </div>
-        </div>
-      )
+        );
+      }
     },
     {
       id: "q3",
       icon: <Moon className="icon icon--purple" />,
       question: "When should I try to sleep?",
       answer: () => {
+        if (itinerary.locations.length < 2 || renderableSegments.length === 0) {
+          return <p>Add origin, destination, and flight timing to calculate sleep guidance.</p>;
+        }
+
         const isSleepRecommended = isRecommendedSleepHour(itinerary, currentTripHour);
         return (
           <div className="qa-stack">
@@ -150,12 +190,12 @@ export default function DynamicQAPanel({
               <div>
                 <span className="qa-recommendation__title">Biological Recommendation</span>
                 <strong className="qa-recommendation__text">
-                  {isSleepRecommended 
-                    ? "💤 RECOMMENDED SLEEP WINDOW: Try to close your eyes now to adapt to destination time." 
-                    : "☀️ BIOLOGICAL DAYTIME: Stay awake, hydrate, and seek bright sunlight."}
+                  {isSleepRecommended
+                    ? "Recommended sleep window: try to rest now."
+                    : "Biological daytime: stay awake and seek bright light."}
                 </strong>
                 <p className="qa-recommendation__note">
-                  Click the timeline's purple hatched segments to see all suggested biological sleep blocks.
+                  Use the hatched timeline cells to scan suggested sleep blocks.
                 </p>
               </div>
             </div>
@@ -168,23 +208,31 @@ export default function DynamicQAPanel({
       icon: <Coffee className="icon icon--amber" />,
       question: "How long is my layover really going to feel?",
       answer: () => {
-        const sorted = [...itinerary.segments].sort((a, b) => a.departureTripHour - b.departureTripHour);
+        const sorted = [...renderableSegments].sort((a, b) => getSegmentDepartureTripHour(a) - getSegmentDepartureTripHour(b));
         if (sorted.length < 2) {
-          return <p>This itinerary does not contain any layovers.</p>;
+          return <p>This itinerary does not contain any complete layovers.</p>;
         }
-        
-        // Find layovers
+
         const layoversList = [];
         for (let i = 0; i < sorted.length - 1; i++) {
           const f1 = sorted[i];
           const f2 = sorted[i + 1];
-          const layoverDuration = f2.departureTripHour - (f1.departureTripHour + f1.duration);
-          const layoverAirport = itinerary.locations.find(l => l.id === f1.toLocationId)!;
+          const layoverDuration = Math.max(0, getSegmentDepartureTripHour(f2) - getSegmentArrivalTripHour(f1));
+          const layoverAirport = itinerary.locations.find(l => l.id === f1.toLocationId);
+
+          if (!layoverAirport) {
+            continue;
+          }
+
           layoversList.push({
             airport: layoverAirport,
             duration: layoverDuration,
-            startTripHour: f1.departureTripHour + f1.duration
+            startTripHour: getSegmentArrivalTripHour(f1)
           });
+        }
+
+        if (layoversList.length === 0) {
+          return <p>Layover airport data is missing.</p>;
         }
 
         return (
@@ -197,23 +245,23 @@ export default function DynamicQAPanel({
                 <div className="qa-layover-header">
                   <strong className="qa-layover-title">
                     <MapPin className="icon icon--sm icon--muted" />
-                    {lay.airport.name} ({lay.airport.code})
+                    {getLocationLabel(lay.airport)}
                   </strong>
                   <span className="qa-duration-badge">
-                    {lay.duration} Hours
+                    {formatDurationFromHours(lay.duration)}
                   </span>
                 </div>
                 <p className="qa-muted-copy">
-                  <strong>Biological perception:</strong> Leaving {origin.name} morning time and waiting in {lay.airport.name} means your body still operates on origin circadian rhythm. Your layover is from{" "}
-                  {getHourStatusForLocation(itinerary, lay.airport, lay.startTripHour).formattedTime} to{" "}
+                  Your layover in {getLocationName(lay.airport)} is from {" "}
+                  {getHourStatusForLocation(itinerary, lay.airport, lay.startTripHour).formattedTime} to {" "}
                   {getHourStatusForLocation(itinerary, lay.airport, lay.startTripHour + lay.duration).formattedTime} local time.
                 </p>
                 <button
                   id={`btn-jump-layover-${idx}`}
-                  onClick={() => jumpToEvent(lay.startTripHour + Math.floor(lay.duration / 2))}
+                  onClick={() => jumpToEvent(lay.startTripHour + lay.duration / 2)}
                   className="qa-link-button"
                 >
-                  Jump to Layover on Timeline →
+                  Jump to Layover on Timeline
                 </button>
               </div>
             ))}
@@ -226,33 +274,35 @@ export default function DynamicQAPanel({
       icon: <Compass className="icon icon--indigo" />,
       question: "Why does this flight arrive the next day?",
       answer: () => {
-        const sorted = [...itinerary.segments].sort((a, b) => a.departureTripHour - b.departureTripHour);
-        if (sorted.length === 0) return <p>No flights scheduled.</p>;
+        const sorted = [...renderableSegments].sort((a, b) => getSegmentDepartureTripHour(a) - getSegmentDepartureTripHour(b));
+        if (!destination || sorted.length === 0) return <p>Add a complete flight segment to compare calendar arrival.</p>;
         const lastFlight = sorted[sorted.length - 1];
-        const lastArr = lastFlight.departureTripHour + lastFlight.duration;
+        const lastArr = getSegmentArrivalTripHour(lastFlight);
         const departureStatus = getHourStatusForLocation(itinerary, origin, 0);
         const arrivalStatus = getHourStatusForLocation(itinerary, destination, lastArr);
 
-        const timezoneJump = destination.offset - origin.offset;
+        const timezoneJump = getLocationOffset(destination) - getLocationOffset(origin);
+        const timezoneJumpSign = timezoneJump > 0 ? "+" : timezoneJump < 0 ? "-" : "";
+        const timezoneJumpLabel = timezoneJumpSign + formatDurationFromHours(Math.abs(timezoneJump));
         const totalDuration = lastArr;
 
         return (
           <div className="qa-stack qa-stack--compact">
             <p>
-              Eastbound flyers chase the sun. By flying into future timezones, your clock is forced ahead, causing you to lose hours on the calendar.
+              Calendar arrival changes when elapsed flight time combines with timezone shifts.
             </p>
             <div className="qa-next-day-card">
               <div className="qa-metric-row">
-                <span>Timezones Crossings:</span>
-                <strong className="qa-next-day-card__value">{timezoneJump > 0 ? `+${timezoneJump}` : timezoneJump} Hours</strong>
+                <span>Timezone Shift:</span>
+                <strong className="qa-next-day-card__value">{timezoneJumpLabel}</strong>
               </div>
               <div className="qa-metric-row">
-                <span>Flight Time (Inc. Layover):</span>
-                <strong className="qa-next-day-card__value">{totalDuration} Hours</strong>
+                <span>Elapsed Trip Time:</span>
+                <strong className="qa-next-day-card__value">{formatDurationFromHours(totalDuration)}</strong>
               </div>
               <div className="qa-divider"></div>
               <p className="qa-muted-copy">
-                You depart {origin.name} at {departureStatus.formattedTime} ({departureStatus.dayName}) and arrive {destination.name} at {arrivalStatus.formattedTime} ({arrivalStatus.dayName}). Even though the absolute trip duration is {totalDuration} hours, the clocks jumped {timezoneJump} hours ahead, which is why it calendar-arrives the next day!
+                You depart {getLocationName(origin)} at {departureStatus.formattedTime} ({departureStatus.dayName}) and arrive {getLocationName(destination)} at {arrivalStatus.formattedTime} ({arrivalStatus.dayName}).
               </p>
             </div>
           </div>
@@ -271,21 +321,21 @@ export default function DynamicQAPanel({
           <div className="qa-solar-grid">
             <div className="qa-solar-card qa-solar-card--day">
               <span className="qa-solar-card__label qa-solar-card__label--day">Daylight</span>
-              <strong className="qa-solar-card__value qa-solar-card__value--day">{daylightHours}h</strong>
+              <strong className="qa-solar-card__value qa-solar-card__value--day">{formatDurationFromHours(daylightHours)}</strong>
             </div>
             <div className="qa-solar-card qa-solar-card--twilight">
               <span className="qa-solar-card__label qa-solar-card__label--twilight">Twilight</span>
-              <strong className="qa-solar-card__value qa-solar-card__value--twilight">{twilightHours}h</strong>
+              <strong className="qa-solar-card__value qa-solar-card__value--twilight">{formatDurationFromHours(twilightHours)}</strong>
             </div>
             <div className="qa-solar-card qa-solar-card--night">
               <span className="qa-solar-card__label qa-solar-card__label--night">Night</span>
-              <strong className="qa-solar-card__value qa-solar-card__value--night">{nightHours}h</strong>
+              <strong className="qa-solar-card__value qa-solar-card__value--night">{formatDurationFromHours(nightHours)}</strong>
             </div>
           </div>
           <p className="qa-solar-note">
-            {daylightHours > nightHours 
-              ? "☀️ This is a daytime-heavy itinerary. Expect high solar exposure which helps maintain daytime wakefulness but might cause sleep disturbances at arrival."
-              : "🌙 This is a night-heavy itinerary. Recommended to get as much rest as possible on flights."}
+            {daylightHours > nightHours
+              ? "This is a daytime-heavy itinerary. Expect more bright-light exposure."
+              : "This is a night-heavy itinerary. Plan rest where practical."}
           </p>
         </div>
       )
@@ -301,8 +351,8 @@ export default function DynamicQAPanel({
 
       <div className="qa-list">
         {questionsList.map((item) => (
-          <div 
-            key={item.id} 
+          <div
+            key={item.id}
             className={`qa-item${openQuestion === item.id ? " qa-item--open" : ""}`}
           >
             <button
