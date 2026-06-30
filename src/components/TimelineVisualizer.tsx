@@ -3,17 +3,16 @@ import type { Itinerary, LocationConfig, FlightSegment } from "../types";
 import {
   getHourStatusForLocation,
   getTravelerStatusAtHour,
-  isRecommendedSleepHour,
-  getOffsetDayName
+  isRecommendedSleepHour
 } from "../utils/timezoneMath";
 import { formatDurationFromHours } from "../utils/durationFormat";
+import { getTimelinePreferences } from "../utils/timelineHorizon";
 import {
   formatLocationTimezone,
   getAirportCode,
   getItineraryIssue,
   getLocationLabel,
   getLocationName,
-  getLocationOffset,
   getRenderableSegments,
   getSafeTripHour,
   getSegmentArrivalTripHour,
@@ -68,8 +67,6 @@ interface FlightTooltipState {
   tripHour: number;
 }
 
-const MINUTES_PER_DAY = 24 * 60;
-
 const getBezierPoint = (
   progress: number,
   start: TimelinePoint,
@@ -120,28 +117,17 @@ const formatExactLocalDateTime = (
   location: LocationConfig,
   tripHour: number
 ): ExactLocalDateTime => {
-  const origin = itinerary.locations[0];
-  const offsetDiff = getLocationOffset(location) - getLocationOffset(origin);
-  const totalMinutes = Math.round((getSafeTripHour(itinerary.startHourLocal) + getSafeTripHour(tripHour) + offsetDiff) * 60);
-  const dayOffset = Math.floor(totalMinutes / MINUTES_PER_DAY);
-  const minuteOfDay = ((totalMinutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
-  const hour24 = Math.floor(minuteOfDay / 60);
-  const minute = minuteOfDay % 60;
-  const meridiem = hour24 >= 12 ? "PM" : "AM";
-  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
-  const dayName = getOffsetDayName(itinerary.startDayName, dayOffset);
-  const dayOffsetLabel = dayOffset === 0
+  const status = getHourStatusForLocation(itinerary, location, tripHour);
+  const dayOffsetLabel = status.dayOffset === 0
     ? "start day"
-    : `${dayOffset > 0 ? "+" : ""}${dayOffset} day${Math.abs(dayOffset) === 1 ? "" : "s"}`;
+    : `${status.dayOffset > 0 ? "+" : ""}${status.dayOffset} day${Math.abs(status.dayOffset) === 1 ? "" : "s"}`;
 
   return {
-    dateLabel: `${dayName} (${dayOffsetLabel})`,
-    timeLabel: `${hour12}:${String(minute).padStart(2, "0")} ${meridiem}`,
+    dateLabel: `${status.dayName}, ${status.formattedDate} (${dayOffsetLabel})`,
+    timeLabel: status.formattedTime,
     timezoneLabel: formatLocationTimezone(location)
   };
 };
-
-
 const getFlightLabel = (segment: FlightSegment) => {
   return segment.flightNumber?.trim() || "Flight";
 };
@@ -168,6 +154,8 @@ export default function TimelineVisualizer({
   const locations = itinerary.locations;
   const renderableSegments = getRenderableSegments(itinerary);
   const itineraryIssue = getItineraryIssue(itinerary);
+  const timelinePreferences = getTimelinePreferences(itinerary);
+  const isNightOnlyDisplay = timelinePreferences.displayMode === "night-only";
 
   // Update SVG canvas dimensions when container or itinerary changes
   useEffect(() => {
@@ -401,7 +389,7 @@ export default function TimelineVisualizer({
   };
 
   return (
-    <div className="timeline-card">
+    <div className={`timeline-card${isNightOnlyDisplay ? " timeline-card--night-only" : ""}`}>
       {/* Visualizer Title HUD */}
       <div className="timeline-header">
         <div>
@@ -411,6 +399,9 @@ export default function TimelineVisualizer({
           </h2>
           <p className="timeline-caption">
             Compare local hours vertically across destinations. Slide the red indicator or click any cell to scrub time.
+            {isNightOnlyDisplay && (
+              <span className="sr-only">Night only focus is enabled; daylight and twilight cells are muted while night cells are emphasized.</span>
+            )}
           </p>
         </div>
 
@@ -618,6 +609,7 @@ export default function TimelineVisualizer({
                             id={`cell-${loc.id}-${hour}`}
                             onClick={() => handleColumnClick(hour)}
                             className={`timeline-cell ${periodClassName}${isPlayhead ? " timeline-cell--playhead" : ""}`}
+                            title={`${hourStatus.dayName}, ${hourStatus.formattedDate} ${hourStatus.formattedTime}. ${hourStatus.daylightLabel}`}
                           >
                             {/* Sleep overlay pattern if recommended */}
                             {sleepSuggested && (

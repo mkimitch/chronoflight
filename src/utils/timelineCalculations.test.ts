@@ -14,6 +14,7 @@ import {
   resolveSegmentDurationHours,
   resolveSegmentDurationMinutes
 } from "./durationFormat";
+import { getItineraryStartDate } from "./itineraryTime";
 import {
   calculateDaylightSummary,
   getHourStatusForLocation,
@@ -26,8 +27,10 @@ import {
   getNetTimezoneShiftHours,
   getSegmentArrivalTripHour,
   getTimelineHorizon,
+  getTimelinePreferences,
   getTotalFlightDurationHours
 } from "./timelineHorizon";
+import { getTripSummaryMetrics } from "./tripSummary";
 
 const findLocation = (itinerary: Itinerary, code: string): LocationConfig => {
   const location = itinerary.locations.find((item) => item.code === code);
@@ -125,12 +128,51 @@ test("converts local time across origin and destination timezones", function con
   assert.equal(departureStatus.formattedTime, "8 PM");
   assert.equal(departureStatus.dayName, "Friday");
   assert.equal(departureStatus.dayOffset, 0);
-  assert.equal(departureStatus.timePeriod, "twilight");
+  assert.equal(departureStatus.localDate, "2026-07-17");
+  assert.equal(departureStatus.timePeriod, "night");
+  assert.equal(departureStatus.timePeriodSource, "solar");
 
   assert.equal(arrivalStatus.formattedTime, "8 AM");
   assert.equal(arrivalStatus.dayName, "Saturday");
   assert.equal(arrivalStatus.dayOffset, 1);
+  assert.equal(arrivalStatus.localDate, "2026-07-18");
   assert.equal(arrivalStatus.timePeriod, "day");
+  assert.equal(arrivalStatus.timePeriodSource, "solar");
+});
+
+test("anchors local dates to the selected trip start date", function anchorsLocalDatesToSelectedStartDate() {
+  const anchoredItinerary: Itinerary = {
+    ...simpleNonstopTripFixture,
+    startDate: "2026-07-17",
+    startDayName: "Monday"
+  };
+  const jfk = findLocation(anchoredItinerary, "JFK");
+  const startStatus = getHourStatusForLocation(anchoredItinerary, jfk, 0);
+
+  assert.equal(getItineraryStartDate(anchoredItinerary), "2026-07-17");
+  assert.equal(startStatus.dayName, "Friday");
+  assert.equal(startStatus.localDate, "2026-07-17");
+});
+
+test("defaults timeline display preference to normal", function defaultsTimelineDisplayPreference() {
+  assert.equal(getTimelinePreferences(simpleNonstopTripFixture).displayMode, "normal");
+});
+
+test("preserves the night-only timeline display preference", function preservesNightOnlyTimelineDisplayPreference() {
+  const nightOnlyItinerary: Itinerary = {
+    ...simpleNonstopTripFixture,
+    timelinePreferences: {
+      displayMode: "night-only",
+      postArrivalMode: "custom",
+      postArrivalHours: 4
+    }
+  };
+
+  assert.deepEqual(getTimelinePreferences(nightOnlyItinerary), {
+    displayMode: "night-only",
+    postArrivalMode: "custom",
+    postArrivalHours: 4
+  });
 });
 
 test("calculates net timezone shift from origin to final destination", function calculatesNetTimezoneShift() {
@@ -144,9 +186,28 @@ test("summarizes day, twilight, and night segments over the visible trip", funct
 
   assert.deepEqual(summary, {
     daylightHours: 2,
-    twilightHours: 3,
-    nightHours: 5
+    twilightHours: 1,
+    nightHours: 7
   });
+});
+
+test("falls back to static daylight periods when coordinates are unavailable", function fallsBackWhenSolarDataIsUnavailable() {
+  const jfk = findLocation(simpleNonstopTripFixture, "JFK");
+  const locationWithoutCoordinates: LocationConfig = {
+    ...jfk,
+    coordinates: undefined,
+    latitude: undefined,
+    longitude: undefined
+  };
+  const itineraryWithoutCoordinates: Itinerary = {
+    ...simpleNonstopTripFixture,
+    locations: [locationWithoutCoordinates, simpleNonstopTripFixture.locations[1]]
+  };
+  const status = getHourStatusForLocation(itineraryWithoutCoordinates, locationWithoutCoordinates, 0);
+
+  assert.equal(status.localDate, "2026-07-17");
+  assert.equal(status.timePeriod, "twilight");
+  assert.equal(status.timePeriodSource, "fallback");
 });
 
 test("handles next-day and multi-day arrivals", function handlesOvernightAndMultiDayArrivals() {
@@ -165,7 +226,8 @@ test("handles next-day and multi-day arrivals", function handlesOvernightAndMult
 
   assert.equal(sydneyArrival.dayOffset, 2);
   assert.equal(sydneyArrival.dayName, "Wednesday");
-  assert.equal(sydneyArrival.formattedTime, "6 AM");
+  assert.equal(sydneyArrival.localDate, "2026-07-08");
+  assert.equal(sydneyArrival.formattedTime, "6:50 AM");
 });
 
 test("summarizes multi-leg API durations in exact minutes", function summarizesMultiLegApiDurations() {
@@ -178,6 +240,29 @@ test("summarizes multi-leg API durations in exact minutes", function summarizesM
   assert.equal(formatDurationFromHours(getLayoverDurationHours(mspToLax, laxToSyd)), "2h");
 });
 
+test("summarizes simple nonstop trip metrics", function summarizesSimpleNonstopTripMetrics() {
+  assert.deepEqual(getTripSummaryMetrics(simpleNonstopTripFixture), {
+    daylightHours: 2,
+    elapsedHours: 9,
+    flightHours: 7,
+    groundHours: 2,
+    layoverCount: 0,
+    netTimezoneShiftHours: 5,
+    nightHours: 7
+  });
+});
+
+test("summarizes multi-leg trip metrics with layover time", function summarizesMultiLegTripMetrics() {
+  assert.deepEqual(getTripSummaryMetrics(multiLegOvernightTripFixture), {
+    daylightHours: 3,
+    elapsedHours: 18,
+    flightHours: 11,
+    groundHours: 7,
+    layoverCount: 1,
+    netTimezoneShiftHours: 8,
+    nightHours: 15
+  });
+});
 test("returns safe fallback values for empty itinerary data", function handlesEmptyItineraryData() {
   const emptyItinerary: Itinerary = {
     id: "empty",
@@ -194,6 +279,15 @@ test("returns safe fallback values for empty itinerary data", function handlesEm
     }
   };
 
+  assert.deepEqual(getTripSummaryMetrics(emptyItinerary), {
+    daylightHours: 0,
+    elapsedHours: 0,
+    flightHours: 0,
+    groundHours: 0,
+    layoverCount: 0,
+    netTimezoneShiftHours: 0,
+    nightHours: 0
+  });
   assert.equal(getItineraryIssue(emptyItinerary), "Add at least one airport to build the timeline.");
   assert.deepEqual(getTimelineHorizon(emptyItinerary), {
     lastArrivalTripHour: 0,

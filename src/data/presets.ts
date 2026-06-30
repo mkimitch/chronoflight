@@ -136,6 +136,7 @@ export const multiLegOvernightTripFixture: Itinerary = {
   id: "msp-yul-ath",
   name: "Minneapolis to Athens (via Montreal)",
   description: "Fixture for a multi-leg overnight trip with a layover, next-day arrival, IANA timezone IDs, cached UTC offsets, and airport coordinates.",
+  startDate: "2026-07-16",
   startHourLocal: 8,
   startDayName: "Thursday",
   locations: [
@@ -231,6 +232,7 @@ export const simpleNonstopTripFixture: Itinerary = {
   id: "jfk-lhr",
   name: "New York to London (Red-Eye Sprint)",
   description: "Fixture for a simple nonstop overnight trip with source schedule moments and a next-day local arrival.",
+  startDate: "2026-07-17",
   startHourLocal: 18,
   startDayName: "Friday",
   locations: [
@@ -294,6 +296,7 @@ export const travelPresets: Itinerary[] = [
     id: "sydney-flight-2026-outbound",
     name: "Sydney Flight - MSP to SYD",
     description: "Confirmed Delta Air Lines outbound itinerary for 4 travelers. MSP -> SYD via LAX, departing Mon, Jul 06, 2026 and arriving Wed, Jul 08, 2026. Fare class: Delta Main Basic. Trip ID: 1011154358.",
+    startDate: "2026-07-06",
     startHourLocal: 18 + 58 / 60,
     startDayName: "Monday",
     bookingDetails: {
@@ -380,6 +383,7 @@ export const travelPresets: Itinerary[] = [
     id: "sydney-flight-2026-return",
     name: "Sydney Flight - SYD to MSP",
     description: "Confirmed Delta Air Lines return itinerary for 4 travelers. SYD -> MSP via LAX on Wed, Jul 29, 2026. Fare class: Delta Main Basic. Trip ID: 1011154358.",
+    startDate: "2026-07-29",
     startHourLocal: 9 + 15 / 60,
     startDayName: "Wednesday",
     bookingDetails: {
@@ -466,6 +470,7 @@ export const travelPresets: Itinerary[] = [
     id: "sfo-nrt-sin",
     name: "San Francisco to Singapore (via Tokyo)",
     description: "A major Transpacific crossing that spans the International Date Line. Highlights the extreme jump of +16 hours, showing how a flight departing at noon arrives in the late afternoon of the following calendar day.",
+    startDate: "2026-07-13",
     startHourLocal: 11,
     startDayName: "Monday",
     locations: [

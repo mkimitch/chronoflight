@@ -1,5 +1,6 @@
 import type { Itinerary, LocationConfig, FlightSegment } from "../types";
 import {
+  getLocationCoordinates,
   getLocationOffset,
   getRenderableSegments,
   getSafeNumber,
@@ -9,14 +10,30 @@ import {
   getSegmentDurationHours,
   getSortedUsableSegments
 } from "./itineraryDisplay";
+import {
+  formatLocalTime,
+  getLocalTimelineDateTime,
+  getOffsetDayName
+} from "./itineraryTime";
+import {
+  getTimePeriodForLocationDateTime,
+  TimelineTimePeriod,
+  TimelineTimePeriodSource
+} from "./solarPeriods";
 
 export interface HourStatus {
   tripHour: number;
   localHour: number; // 0-23
-  formattedTime: string; // e.g. "08 AM", "12 PM"
+  localMinute: number;
+  localMinuteOfDay: number;
+  localDate: string;
+  formattedDate: string;
+  formattedTime: string; // e.g. "8 AM", "6:58 PM"
   dayOffset: number; // e.g. 0 for same day, 1 for next day, etc.
   dayName: string; // e.g. "Monday"
-  timePeriod: "day" | "twilight" | "night";
+  timePeriod: TimelineTimePeriod;
+  timePeriodSource: TimelineTimePeriodSource;
+  daylightLabel: string;
 }
 
 export interface TravelerStatus {
@@ -29,32 +46,24 @@ export interface TravelerStatus {
 const FALLBACK_HOUR_STATUS: HourStatus = {
   tripHour: 0,
   localHour: 0,
+  localMinute: 0,
+  localMinuteOfDay: 0,
+  localDate: "",
+  formattedDate: "Date unavailable",
   formattedTime: "Time unavailable",
   dayOffset: 0,
   dayName: "Day unavailable",
-  timePeriod: "night"
+  timePeriod: "night",
+  timePeriodSource: "fallback",
+  daylightLabel: "Solar data unavailable; using fallback daylight cycle."
 };
 
 // Convert 24-hour number to AM/PM string
 export function formatLocalHour(hour: number): string {
-  if (!Number.isFinite(hour)) {
-    return "Time unavailable";
-  }
-
-  const h = ((Math.trunc(hour) % 24) + 24) % 24;
-  if (h === 0) return "12 AM";
-  if (h === 12) return "12 PM";
-  return h > 12 ? `${h - 12} PM` : `${h} AM`;
+  return formatLocalTime(hour, 0);
 }
 
-// Get the name of the day offset by a number of days
-const DAYS_OF_WEEK = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-export function getOffsetDayName(startDay: string, dayOffset: number): string {
-  const startIndex = DAYS_OF_WEEK.indexOf(startDay);
-  if (startIndex === -1 || !Number.isFinite(dayOffset)) return startDay || "Day unavailable";
-  const targetIndex = (startIndex + dayOffset + 7000) % 7;
-  return DAYS_OF_WEEK[targetIndex];
-}
+export { getOffsetDayName };
 
 // Calculate the status of a specific location at a specific trip hour
 export function getHourStatusForLocation(
@@ -71,39 +80,26 @@ export function getHourStatusForLocation(
   }
 
   const safeTripHour = getSafeTripHour(tripHour);
-  const offsetDiff = getLocationOffset(location) - getLocationOffset(origin);
-
-  // Total hours from the origin start hour
-  const totalHours = getSafeNumber(itinerary.startHourLocal) + safeTripHour + offsetDiff;
-
-  // Float representation of the hour in 24h cycle
-  let localHour = totalHours % 24;
-  if (localHour < 0) {
-    localHour += 24;
-  }
-
-  const dayOffset = Math.floor(totalHours / 24);
-  const dayName = getOffsetDayName(itinerary.startDayName, dayOffset);
-
-  // Classify time period
-  let timePeriod: "day" | "twilight" | "night" = "day";
-  if (localHour >= 6 && localHour < 18) {
-    timePeriod = "day"; // 6 AM - 6 PM
-  } else if (localHour >= 18 && localHour < 21) {
-    timePeriod = "twilight"; // 6 PM - 9 PM
-  } else {
-    timePeriod = "night"; // 9 PM - 6 AM
-  }
-
-  const roundedLocalHour = Math.floor(localHour);
+  const localDateTime = getLocalTimelineDateTime(itinerary, location, safeTripHour);
+  const period = getTimePeriodForLocationDateTime(
+    location,
+    localDateTime.date,
+    localDateTime.minuteOfDay
+  );
 
   return {
     tripHour: safeTripHour,
-    localHour: roundedLocalHour,
-    formattedTime: formatLocalHour(roundedLocalHour),
-    dayOffset,
-    dayName,
-    timePeriod,
+    localHour: localDateTime.hour,
+    localMinute: localDateTime.minute,
+    localMinuteOfDay: localDateTime.minuteOfDay,
+    localDate: localDateTime.date,
+    formattedDate: localDateTime.formattedDate,
+    formattedTime: localDateTime.formattedTime,
+    dayOffset: localDateTime.dayOffset,
+    dayName: localDateTime.weekday,
+    timePeriod: period.timePeriod,
+    timePeriodSource: period.source,
+    daylightLabel: period.window.message
   };
 }
 
@@ -221,6 +217,40 @@ export function isRecommendedSleepHour(
   }
 }
 
+const getInFlightLocationEstimate = (
+  itinerary: Itinerary,
+  flight: FlightSegment,
+  tripHour: number
+): LocationConfig | null => {
+  const fromLoc = itinerary.locations.find(l => l.id === flight.fromLocationId);
+  const toLoc = itinerary.locations.find(l => l.id === flight.toLocationId);
+  const duration = getSegmentDurationHours(flight);
+
+  if (!fromLoc || !toLoc || duration <= 0) {
+    return null;
+  }
+
+  const progress = Math.min(1, Math.max(0, (tripHour - getSegmentDepartureTripHour(flight)) / duration));
+  const interpolatedOffset = getLocationOffset(fromLoc) + progress * (getLocationOffset(toLoc) - getLocationOffset(fromLoc));
+  const fromCoordinates = getLocationCoordinates(fromLoc);
+  const toCoordinates = getLocationCoordinates(toLoc);
+  const coordinates = fromCoordinates && toCoordinates
+    ? {
+      latitude: fromCoordinates.latitude + progress * (toCoordinates.latitude - fromCoordinates.latitude),
+      longitude: fromCoordinates.longitude + progress * (toCoordinates.longitude - fromCoordinates.longitude)
+    }
+    : undefined;
+
+  return {
+    id: "interpolated-flight",
+    name: "In Flight",
+    code: "FLT",
+    coordinates,
+    timezoneLabel: "Flight estimate",
+    offset: interpolatedOffset
+  };
+};
+
 // Get the total daylight hours experienced during the trip
 export function calculateDaylightSummary(itinerary: Itinerary, maxHour: number) {
   let daylightHours = 0;
@@ -232,26 +262,8 @@ export function calculateDaylightSummary(itinerary: Itinerary, maxHour: number) 
     const status = getTravelerStatusAtHour(itinerary, t);
     let activeLocation = status.currentLocation;
 
-    // If in flight, we estimate timezone based on interpolation between origin and destination offsets
     if (status.type === "flight" && status.flightSegment) {
-      const flight = status.flightSegment;
-      const fromLoc = itinerary.locations.find(l => l.id === flight.fromLocationId);
-      const toLoc = itinerary.locations.find(l => l.id === flight.toLocationId);
-      const duration = getSegmentDurationHours(flight);
-
-      if (fromLoc && toLoc && duration > 0) {
-        const progress = (t - getSegmentDepartureTripHour(flight)) / duration;
-        const interpolatedOffset = getLocationOffset(fromLoc) + progress * (getLocationOffset(toLoc) - getLocationOffset(fromLoc));
-
-        const pseudoLoc: LocationConfig = {
-          id: "interpolated",
-          name: "In Flight",
-          code: "FLT",
-          timezoneLabel: "FLT",
-          offset: interpolatedOffset
-        };
-        activeLocation = pseudoLoc;
-      }
+      activeLocation = getInFlightLocationEstimate(itinerary, status.flightSegment, t);
     }
 
     if (activeLocation) {

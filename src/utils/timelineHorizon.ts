@@ -15,6 +15,7 @@ export const TIMELINE_POST_ARRIVAL_HOUR_MIN = 0;
 export const TIMELINE_POST_ARRIVAL_HOUR_MAX = 18;
 
 export const DEFAULT_TIMELINE_PREFERENCES: TimelinePreferences = {
+  displayMode: "normal",
   postArrivalMode: "adaptive",
   postArrivalHours: 6
 };
@@ -76,12 +77,16 @@ export const getLastArrivalTripHour = (segments: FlightSegment[]) => {
 };
 
 export const getTimelinePreferences = (itinerary: Itinerary): TimelinePreferences => {
+  const displayMode = itinerary.timelinePreferences?.displayMode === "night-only"
+    ? "night-only"
+    : DEFAULT_TIMELINE_PREFERENCES.displayMode;
   const postArrivalHours = getSafeNumber(
     itinerary.timelinePreferences?.postArrivalHours,
     DEFAULT_TIMELINE_PREFERENCES.postArrivalHours
   );
 
   return {
+    displayMode,
     postArrivalMode: itinerary.timelinePreferences?.postArrivalMode ?? DEFAULT_TIMELINE_PREFERENCES.postArrivalMode,
     postArrivalHours: clamp(
       Math.round(postArrivalHours),
