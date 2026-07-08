@@ -79,7 +79,7 @@ export function getHourStatusForLocation(
     };
   }
 
-  const safeTripHour = getSafeTripHour(tripHour);
+  const safeTripHour = getSafeNumber(tripHour);
   const localDateTime = getLocalTimelineDateTime(itinerary, location, safeTripHour);
   const period = getTimePeriodForLocationDateTime(
     location,

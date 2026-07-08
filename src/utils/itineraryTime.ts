@@ -295,7 +295,7 @@ export const getTripStartUtcMillis = (itinerary: Itinerary) => {
 };
 
 export const getTripUtcMillis = (itinerary: Itinerary, tripHour: number) => {
-  const safeTripHour = isFiniteNumber(tripHour) ? Math.max(0, tripHour) : 0;
+  const safeTripHour = isFiniteNumber(tripHour) ? tripHour : 0;
   return getTripStartUtcMillis(itinerary) + Math.round(safeTripHour * 60) * MS_PER_MINUTE;
 };
 
@@ -304,7 +304,7 @@ export const getLocalTimelineDateTime = (
   location: LocationConfig | null | undefined,
   tripHour: number
 ) => {
-  const safeTripHour = isFiniteNumber(tripHour) ? Math.max(0, tripHour) : 0;
+  const safeTripHour = isFiniteNumber(tripHour) ? tripHour : 0;
   return getLocalDateTimePartsForLocation(
     location,
     getTripUtcMillis(itinerary, safeTripHour),

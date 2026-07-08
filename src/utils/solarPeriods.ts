@@ -31,7 +31,6 @@ const DEG = 180 / Math.PI;
 const solarWindowCache = new Map<string, SolarWindow>();
 
 const normalizeDegrees = (degrees: number) => ((degrees % 360) + 360) % 360;
-const normalizeHours = (hours: number) => ((hours % 24) + 24) % 24;
 
 const isFiniteNumber = (value: unknown): value is number => {
   return typeof value === "number" && Number.isFinite(value);
@@ -96,7 +95,7 @@ const calculateSunEventUtcMillis = (
     ? (360 - Math.acos(cosHourAngle) * DEG) / 15
     : (Math.acos(cosHourAngle) * DEG) / 15;
   const localMeanTime = hourAngle + rightAscension - (0.06571 * approximateTime) - 6.622;
-  const utcHour = normalizeHours(localMeanTime - longitudeHour);
+  const utcHour = localMeanTime - longitudeHour;
 
   return Date.UTC(parsedDate.year, parsedDate.month - 1, parsedDate.day)
     + Math.round(utcHour * 60) * 60 * 1000;
@@ -162,7 +161,12 @@ export const getSolarWindowForLocationDate = (
   }
 
   const sunriseMinutes = getRelativeLocalMinute(location, localDate, sunriseUtcMillis);
-  const sunsetMinutes = getRelativeLocalMinute(location, localDate, sunsetUtcMillis);
+  let sunsetMinutes = getRelativeLocalMinute(location, localDate, sunsetUtcMillis);
+
+  if (sunsetMinutes < sunriseMinutes) {
+    sunsetMinutes += MINUTES_PER_DAY;
+  }
+
   const window: SolarWindow = {
     message: `Sunrise ${formatLocalTime(Math.floor(sunriseMinutes / 60), sunriseMinutes % 60)}, sunset ${formatLocalTime(Math.floor(sunsetMinutes / 60), sunsetMinutes % 60)}.`,
     source: "solar",

@@ -575,7 +575,7 @@ export default function ItineraryControls({
 
             <div className="controls-subsection">
               <div className="controls-heading__label">
-                <Clock className="icon icon--sm icon--indigo" />
+                <Clock className="icon icon--sm icon--ai-purple" />
                 <span>Timeline Range</span>
               </div>
 
@@ -796,7 +796,7 @@ export default function ItineraryControls({
           <div className="controls-section">
             <div className="controls-heading">
               <div className="controls-heading__label">
-                <Plane className="icon icon--sm icon--indigo" />
+                <Plane className="icon icon--sm icon--ai-purple" />
                 <span>Flight Segments</span>
               </div>
               <button
@@ -978,7 +978,7 @@ export default function ItineraryControls({
         {activeTab === "sleep" && (
           <div className="controls-section">
             <div className="controls-heading__label">
-              <Moon className="icon icon--sm icon--indigo" />
+              <Moon className="icon icon--sm icon--night" />
               <span>Circadian Rhythm Settings</span>
             </div>
 

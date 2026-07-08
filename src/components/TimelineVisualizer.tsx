@@ -8,6 +8,11 @@ import {
 import { formatDurationFromHours } from "../utils/durationFormat";
 import { getTimelinePreferences } from "../utils/timelineHorizon";
 import {
+  getTimelineAxisColumns,
+  getTimelineColumnIndexForTripHour,
+  getTimelinePositionPixels
+} from "../utils/timelineAxis";
+import {
   formatLocationTimezone,
   getAirportCode,
   getItineraryIssue,
@@ -128,6 +133,7 @@ const formatExactLocalDateTime = (
     timezoneLabel: formatLocationTimezone(location)
   };
 };
+
 const getFlightLabel = (segment: FlightSegment) => {
   return segment.flightNumber?.trim() || "Flight";
 };
@@ -144,18 +150,30 @@ export default function TimelineVisualizer({
   const [flightTooltip, setFlightTooltip] = useState<FlightTooltipState | null>(null);
 
   const cellWidth = 60; // width of each hour cell in pixels
+  const labelColumnWidth = 156; // width of the sticky location label column in pixels
   const rowHeight = 90; // height of each location track in pixels
   const headerHeight = 44; // height of the column headers row in pixels
 
   const boundedMaxTripHour = Math.max(0, Math.floor(getSafeTripHour(maxTripHour, 24)));
   const safeCurrentTripHour = Math.min(boundedMaxTripHour, getSafeTripHour(currentTripHour));
-  const totalHours = boundedMaxTripHour + 1;
-  const hoursArray = Array.from({ length: totalHours }, (_, i) => i);
+  const timelineAxis = getTimelineAxisColumns({
+    maxTripHour: boundedMaxTripHour,
+    startHourLocal: itinerary.startHourLocal
+  });
+  const axisColumns = timelineAxis.columns;
+  const activeColumnIndex = getTimelineColumnIndexForTripHour(timelineAxis, safeCurrentTripHour);
+  const gridWidth = axisColumns.length * cellWidth + labelColumnWidth;
   const locations = itinerary.locations;
   const renderableSegments = getRenderableSegments(itinerary);
   const itineraryIssue = getItineraryIssue(itinerary);
   const timelinePreferences = getTimelinePreferences(itinerary);
   const isNightOnlyDisplay = timelinePreferences.displayMode === "night-only";
+  const getXForTripHour = (tripHour: number) => getTimelinePositionPixels({
+    axis: timelineAxis,
+    cellWidth,
+    labelColumnWidth,
+    tripHour
+  });
 
   // Update SVG canvas dimensions when container or itinerary changes
   useEffect(() => {
@@ -176,25 +194,25 @@ export default function TimelineVisualizer({
       clearTimeout(timer);
       window.removeEventListener("resize", updateDimensions);
     };
-  }, [itinerary, boundedMaxTripHour]);
+  }, [itinerary, boundedMaxTripHour, timelineAxis.axisStartTripHour]);
 
   // Hide stale tooltip content when the visualized data changes
   useEffect(() => {
     setFlightTooltip(null);
-  }, [itinerary, boundedMaxTripHour]);
+  }, [itinerary, boundedMaxTripHour, timelineAxis.axisStartTripHour]);
 
   // Center scroll around active scrubber if possible
   useEffect(() => {
     if (containerRef.current) {
-      const activeX = safeCurrentTripHour * cellWidth;
+      const activeX = getXForTripHour(safeCurrentTripHour);
       const containerWidth = containerRef.current.clientWidth;
-      const scrollLeft = activeX - containerWidth / 2 + cellWidth / 2;
+      const scrollLeft = activeX - containerWidth / 2;
       containerRef.current.scrollTo({
         left: Math.max(0, scrollLeft),
         behavior: "smooth"
       });
     }
-  }, [safeCurrentTripHour]);
+  }, [safeCurrentTripHour, timelineAxis.axisStartTripHour]);
 
   // Determine locations row indexing
   const findRowIndex = (locId: string) => {
@@ -213,9 +231,9 @@ export default function TimelineVisualizer({
 
     const departureTripHour = getSegmentDepartureTripHour(segment);
     const arrivalTripHour = getSegmentArrivalTripHour(segment);
-    const depX = 140 + departureTripHour * cellWidth + cellWidth / 2;
+    const depX = getXForTripHour(departureTripHour);
     const depY = headerHeight + fromIdx * rowHeight + rowHeight / 2;
-    const arrX = 140 + arrivalTripHour * cellWidth + cellWidth / 2;
+    const arrX = getXForTripHour(arrivalTripHour);
     const arrY = headerHeight + toIdx * rowHeight + rowHeight / 2;
     const dx = arrX - depX;
     const cx1 = depX + dx * 0.35;
@@ -379,12 +397,12 @@ export default function TimelineVisualizer({
   };
 
   // Helper to handle timeline column click
-  const handleColumnClick = (hour: number) => {
-    onSetTripHour(Math.min(boundedMaxTripHour, Math.max(0, hour)));
+  const handleColumnClick = (tripHour: number) => {
+    onSetTripHour(Math.min(boundedMaxTripHour, Math.max(0, Math.round(tripHour))));
   };
 
   const playheadStyle = {
-    left: `${140 + safeCurrentTripHour * cellWidth + cellWidth / 2}px`,
+    left: `${getXForTripHour(safeCurrentTripHour)}px`,
     width: "2px"
   };
 
@@ -394,11 +412,11 @@ export default function TimelineVisualizer({
       <div className="timeline-header">
         <div>
           <h2 className="timeline-title">
-            <Clock className="icon icon--indigo" />
+            <Clock className="icon icon--ai-purple" />
             <span>Interactive Space-Time Flight Grid</span>
           </h2>
           <p className="timeline-caption">
-            Compare local hours vertically across destinations. Slide the red indicator or click any cell to scrub time.
+            Compare local hours vertically across destinations. Slide the active indicator or click any cell to scrub time.
             {isNightOnlyDisplay && (
               <span className="sr-only">Night only focus is enabled; daylight and twilight cells are muted while night cells are emphasized.</span>
             )}
@@ -409,15 +427,15 @@ export default function TimelineVisualizer({
         <div className="timeline-legend">
           <div className="legend-token legend-token--day">
             <Sun className="icon icon--xs icon--amber" />
-            <span>Day (6a-6p)</span>
+            <span>Daylight</span>
           </div>
           <div className="legend-token legend-token--twilight">
             <div className="timeline-dot timeline-dot--sm timeline-dot--twilight"></div>
             <span>Twilight</span>
           </div>
           <div className="legend-token legend-token--night">
-            <Moon className="icon icon--xs icon--purple" />
-            <span>Night (9p-6a)</span>
+            <Moon className="icon icon--xs icon--night" />
+            <span>Night</span>
           </div>
           <div className="legend-token legend-token--sleep">
             <div className="legend-sleep-pattern"></div>
@@ -447,7 +465,7 @@ export default function TimelineVisualizer({
             <div
               ref={gridContentRef}
               className="timeline-grid-content"
-              style={{ width: `${totalHours * cellWidth + 140}px` }}
+              style={{ width: `${gridWidth}px` }}
             >
               {/* 1. SVG Layer for Flights, Flight Numbers, and Connections */}
               <svg
@@ -460,8 +478,20 @@ export default function TimelineVisualizer({
 
                   if (!geometry) return null;
 
-                  const midX = (geometry.depX + geometry.arrX) / 2;
-                  const midY = (geometry.depY + geometry.arrY) / 2;
+                  const midpoint = getBezierPoint(
+                    0.5,
+                    { x: geometry.depX, y: geometry.depY },
+                    { x: geometry.cx1, y: geometry.cy1 },
+                    { x: geometry.cx2, y: geometry.cy2 },
+                    { x: geometry.arrX, y: geometry.arrY }
+                  );
+                  const labelWidth = 68;
+                  const labelGap = 14;
+                  const hasRightLabelSpace = midpoint.x + labelGap + labelWidth <= gridWidth - 12;
+                  const labelX = hasRightLabelSpace
+                    ? midpoint.x + labelGap
+                    : Math.max(labelColumnWidth + 4, midpoint.x - labelGap - labelWidth);
+                  const labelY = midpoint.y - 20;
 
                   return (
                     <g key={seg.id} className="timeline-flight-group">
@@ -503,10 +533,10 @@ export default function TimelineVisualizer({
                         onKeyDown={(event) => handleFlightPathKeyDown(event, seg)}
                       />
                       {/* Flight Plane Icon along curve */}
-                      <circle cx={midX} cy={midY - 4} r="10" fill="oklch(var(--flight-marker-fill))" className="timeline-flight-marker" />
+                      <circle cx={midpoint.x} cy={midpoint.y - 4} r="10" fill="oklch(var(--flight-marker-fill))" className="timeline-flight-marker" />
                       <text
-                        x={midX}
-                        y={midY}
+                        x={midpoint.x}
+                        y={midpoint.y}
                         fill="oklch(var(--flight-marker-icon))"
                         fontSize="7"
                         fontWeight="bold"
@@ -516,16 +546,19 @@ export default function TimelineVisualizer({
                       </text>
 
                       {/* Flight code label tag */}
-                      <g transform={`translate(${midX}, ${midY - 20})`}>
+                      <g transform={`translate(${labelX}, ${labelY})`}>
                         <rect
-                          x="-30"
+                          className="timeline-flight-label"
+                          x="0"
                           y="-8"
-                          width="60"
+                          width={labelWidth}
                           height="15"
                           rx="4"
                           fill="oklch(var(--flight-label-background))"
                         />
                         <text
+                          className="timeline-flight-label-text"
+                          x={labelWidth / 2}
                           fill="oklch(var(--flight-label-text))"
                           fontSize="8"
                           fontWeight="bold"
@@ -549,17 +582,17 @@ export default function TimelineVisualizer({
 
                 {/* Scrolling Hours */}
                 <div className="timeline-hour-row">
-                  {hoursArray.map((hour) => {
-                    const isCurrent = hour === safeCurrentTripHour;
+                  {axisColumns.map((column) => {
+                    const isCurrent = column.index === activeColumnIndex;
                     return (
                       <div
-                        key={hour}
-                        id={`header-col-${hour}`}
-                        onClick={() => handleColumnClick(hour)}
+                        key={column.index}
+                        id={`header-col-${column.index}`}
+                        onClick={() => handleColumnClick(column.axisTripHour)}
                         className={`timeline-hour-cell${isCurrent ? " timeline-hour-cell--current" : ""}`}
                       >
                         <span>
-                          {hour === 0 ? "START" : `H +${hour}`}
+                          {column.label}
                         </span>
                       </div>
                     );
@@ -589,10 +622,10 @@ export default function TimelineVisualizer({
 
                     {/* Grid cells representing each trip hour */}
                     <div className="timeline-cells">
-                      {hoursArray.map((hour) => {
-                        const hourStatus = getHourStatusForLocation(itinerary, loc, hour);
-                        const sleepSuggested = isRecommendedSleepHour(itinerary, hour);
-                        const isPlayhead = hour === safeCurrentTripHour;
+                      {axisColumns.map((column) => {
+                        const hourStatus = getHourStatusForLocation(itinerary, loc, column.axisTripHour);
+                        const sleepSuggested = isRecommendedSleepHour(itinerary, column.axisTripHour);
+                        const isPlayhead = column.index === activeColumnIndex;
                         const periodClassName = `timeline-cell--${hourStatus.timePeriod}`;
                         const periodIconClassName = `timeline-cell__period-icon--${hourStatus.timePeriod}`;
                         const timeParts = hourStatus.formattedTime.split(" ");
@@ -601,13 +634,13 @@ export default function TimelineVisualizer({
                           ? <Sun className="icon icon--xs icon--amber" />
                           : hourStatus.timePeriod === "twilight"
                             ? <div className="timeline-dot timeline-dot--sm timeline-dot--twilight timeline-dot--pulse"></div>
-                            : <Moon className="icon icon--xs icon--purple" />;
+                            : <Moon className="icon icon--xs icon--night" />;
 
                         return (
                           <div
-                            key={hour}
-                            id={`cell-${loc.id}-${hour}`}
-                            onClick={() => handleColumnClick(hour)}
+                            key={column.index}
+                            id={`cell-${loc.id}-${column.index}`}
+                            onClick={() => handleColumnClick(column.axisTripHour)}
                             className={`timeline-cell ${periodClassName}${isPlayhead ? " timeline-cell--playhead" : ""}`}
                             title={`${hourStatus.dayName}, ${hourStatus.formattedDate} ${hourStatus.formattedTime}. ${hourStatus.daylightLabel}`}
                           >
@@ -647,7 +680,7 @@ export default function TimelineVisualizer({
                                 {hourStatus.dayName.slice(0, 3)}
                               </span>
                               {sleepSuggested && (
-                                <Bed className="icon icon--xs icon--purple" />
+                                <Bed className="icon icon--xs icon--teal" />
                               )}
                             </div>
                           </div>
@@ -724,7 +757,7 @@ export default function TimelineVisualizer({
           <div className="timeline-slider-panel">
             <div className="timeline-slider-header">
               <span className="timeline-slider-label">
-                <Clock className="icon icon--sm icon--indigo" />
+                <Clock className="icon icon--sm icon--ai-purple" />
                 <span>Interactive Time Slider:</span>
                 <strong className="timeline-slider-value">Trip {formatDurationFromHours(safeCurrentTripHour)} / {formatDurationFromHours(boundedMaxTripHour)}</strong>
               </span>
@@ -754,7 +787,7 @@ export default function TimelineVisualizer({
                     if (stat.type === "flight" && stat.flightSegment) {
                       return (
                         <>
-                          <Plane className="icon icon--xs icon--indigo is-pulsing" />
+                          <Plane className="icon icon--xs icon--ai-purple is-pulsing" />
                           <span>In Flight {getFlightLabel(stat.flightSegment)}</span>
                         </>
                       );
@@ -775,7 +808,7 @@ export default function TimelineVisualizer({
                     } else if (stat.currentLocation) {
                       return (
                         <>
-                          <div className="timeline-dot timeline-dot--sm timeline-dot--indigo"></div>
+                          <div className="timeline-dot timeline-dot--sm timeline-dot--ai-purple"></div>
                           <span>At Origin in {getLocationLabel(stat.currentLocation)}</span>
                         </>
                       );

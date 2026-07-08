@@ -20,6 +20,7 @@ import {
   getHourStatusForLocation,
   getTravelerStatusAtHour
 } from "./timezoneMath";
+import { getSolarWindowForLocationDate } from "./solarPeriods";
 import { getItineraryIssue } from "./itineraryDisplay";
 import {
   getLastArrivalTripHour,
@@ -31,7 +32,12 @@ import {
   getTotalFlightDurationHours
 } from "./timelineHorizon";
 import { getTripSummaryMetrics } from "./tripSummary";
-
+import {
+  getTimelineAxisColumns,
+  getTimelineOffsetPercent,
+  getTimelinePositionPixels,
+  snapTimelineStart
+} from "./timelineAxis";
 const findLocation = (itinerary: Itinerary, code: string): LocationConfig => {
   const location = itinerary.locations.find((item) => item.code === code);
 
@@ -85,6 +91,34 @@ test("handles zero-minute duration conversions", function handlesZeroMinuteDurat
   assert.equal(formatDurationMinutes(0), "0m");
   assert.equal(formatDurationFromHours(0), "0m");
 });
+test("snaps timeline axes to clean intervals without changing event placement", function snapsTimelineAxesToCleanIntervals() {
+  const axisStart = snapTimelineStart(new Date(Date.UTC(2026, 6, 6, 18, 58)), 60);
+  const axisEnd = new Date(Date.UTC(2026, 6, 6, 19, 0));
+  const eventTime = new Date(Date.UTC(2026, 6, 6, 18, 58));
+
+  assert.equal(axisStart.toISOString(), "2026-07-06T18:00:00.000Z");
+  assert.equal(Math.round(getTimelineOffsetPercent({ axisStart, axisEnd, eventTime }) * 10) / 10, 96.7);
+  assert.equal(snapTimelineStart(new Date(Date.UTC(2026, 6, 29, 9, 45)), 30).toISOString(), "2026-07-29T09:30:00.000Z");
+});
+
+test("generates clean Sydney timeline axis labels with proportional trip-hour positions", function generatesCleanSydneyTimelineAxisLabels() {
+  const outbound = getTimelineAxisColumns({
+    maxTripHour: 3,
+    startHourLocal: 18 + 58 / 60
+  });
+  const returnTrip = getTimelineAxisColumns({
+    maxTripHour: 3,
+    startHourLocal: 9 + 15 / 60
+  });
+
+  assert.deepEqual(outbound.columns.slice(0, 3).map((column) => column.label), ["6 PM", "7 PM", "8 PM"]);
+  assert.equal(Math.round(outbound.axisStartTripHour * 60), -58);
+  assert.equal(getTimelinePositionPixels({ axis: outbound, cellWidth: 60, labelColumnWidth: 140, tripHour: 0 }), 198);
+
+  assert.deepEqual(returnTrip.columns.slice(0, 3).map((column) => column.label), ["9 AM", "10 AM", "11 AM"]);
+  assert.equal(Math.round(returnTrip.axisStartTripHour * 60), -15);
+  assert.equal(getTimelinePositionPixels({ axis: returnTrip, cellWidth: 60, labelColumnWidth: 140, tripHour: 0 }), 155);
+});
 
 test("prefers API duration minutes and converts to timeline hours", function prefersApiDurationMinutes() {
   const segment = {
@@ -129,7 +163,7 @@ test("converts local time across origin and destination timezones", function con
   assert.equal(departureStatus.dayName, "Friday");
   assert.equal(departureStatus.dayOffset, 0);
   assert.equal(departureStatus.localDate, "2026-07-17");
-  assert.equal(departureStatus.timePeriod, "night");
+  assert.equal(departureStatus.timePeriod, "day");
   assert.equal(departureStatus.timePeriodSource, "solar");
 
   assert.equal(arrivalStatus.formattedTime, "8 AM");
@@ -185,9 +219,9 @@ test("summarizes day, twilight, and night segments over the visible trip", funct
   const summary = calculateDaylightSummary(simpleNonstopTripFixture, arrivalTripHour);
 
   assert.deepEqual(summary, {
-    daylightHours: 2,
+    daylightHours: 5,
     twilightHours: 1,
-    nightHours: 7
+    nightHours: 4
   });
 });
 
@@ -209,6 +243,21 @@ test("falls back to static daylight periods when coordinates are unavailable", f
   assert.equal(status.timePeriod, "twilight");
   assert.equal(status.timePeriodSource, "fallback");
 });
+test("keeps Sydney solar events on the selected local day", function keepsSydneySolarEventsOnLocalDay() {
+  const sydneyOutbound = findItinerary("sydney-flight-2026-outbound");
+  const syd = findLocation(sydneyOutbound, "SYD");
+  const window = getSolarWindowForLocationDate(syd, "2026-07-09");
+
+  assert.equal(window.source, "solar");
+  assert.ok(
+    window.sunriseMinutes !== null && window.sunriseMinutes >= 360 && window.sunriseMinutes < 480,
+    `Expected Sydney sunrise inside the local morning, got ${window.sunriseMinutes}.`
+  );
+  assert.ok(
+    window.sunsetMinutes !== null && window.sunsetMinutes >= 960 && window.sunsetMinutes < 1080,
+    `Expected Sydney sunset inside the local evening, got ${window.sunsetMinutes}.`
+  );
+});
 
 test("handles next-day and multi-day arrivals", function handlesOvernightAndMultiDayArrivals() {
   const lhr = findLocation(simpleNonstopTripFixture, "LHR");
@@ -225,42 +274,44 @@ test("handles next-day and multi-day arrivals", function handlesOvernightAndMult
   assert.equal(simpleArrival.dayName, "Saturday");
 
   assert.equal(sydneyArrival.dayOffset, 2);
-  assert.equal(sydneyArrival.dayName, "Wednesday");
-  assert.equal(sydneyArrival.localDate, "2026-07-08");
-  assert.equal(sydneyArrival.formattedTime, "6:50 AM");
+  assert.equal(sydneyArrival.dayName, "Thursday");
+  assert.equal(sydneyArrival.localDate, "2026-07-09");
+  assert.equal(sydneyArrival.formattedTime, "7:05 AM");
+  assert.equal(sydneyArrival.timePeriod, "day");
+  assert.equal(sydneyArrival.timePeriodSource, "solar");
 });
 
 test("summarizes multi-leg API durations in exact minutes", function summarizesMultiLegApiDurations() {
   const sydneyOutbound = findItinerary("sydney-flight-2026-outbound");
   const [mspToLax, laxToSyd] = sydneyOutbound.segments;
 
-  assert.equal(formatDurationMinutes(resolveSegmentDurationMinutes(mspToLax)), "3h 57m");
-  assert.equal(formatDurationMinutes(resolveSegmentDurationMinutes(laxToSyd)), "14h 55m");
-  assert.equal(formatDurationFromHours(getTotalFlightDurationHours(sydneyOutbound.segments)), "18h 52m");
-  assert.equal(formatDurationFromHours(getLayoverDurationHours(mspToLax, laxToSyd)), "2h");
+  assert.equal(formatDurationMinutes(resolveSegmentDurationMinutes(mspToLax)), "3h 40m");
+  assert.equal(formatDurationMinutes(resolveSegmentDurationMinutes(laxToSyd)), "15h 05m");
+  assert.equal(formatDurationFromHours(getTotalFlightDurationHours(sydneyOutbound.segments)), "18h 45m");
+  assert.equal(formatDurationFromHours(getLayoverDurationHours(mspToLax, laxToSyd)), "12h 38m");
 });
 
 test("summarizes simple nonstop trip metrics", function summarizesSimpleNonstopTripMetrics() {
   assert.deepEqual(getTripSummaryMetrics(simpleNonstopTripFixture), {
-    daylightHours: 2,
+    daylightHours: 5,
     elapsedHours: 9,
     flightHours: 7,
     groundHours: 2,
     layoverCount: 0,
     netTimezoneShiftHours: 5,
-    nightHours: 7
+    nightHours: 4
   });
 });
 
 test("summarizes multi-leg trip metrics with layover time", function summarizesMultiLegTripMetrics() {
   assert.deepEqual(getTripSummaryMetrics(multiLegOvernightTripFixture), {
-    daylightHours: 3,
+    daylightHours: 14,
     elapsedHours: 18,
     flightHours: 11,
     groundHours: 7,
     layoverCount: 1,
     netTimezoneShiftHours: 8,
-    nightHours: 15
+    nightHours: 4
   });
 });
 test("returns safe fallback values for empty itinerary data", function handlesEmptyItineraryData() {

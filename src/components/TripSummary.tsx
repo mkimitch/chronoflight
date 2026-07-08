@@ -30,12 +30,12 @@ export default function TripSummary({ itinerary }: TripSummaryProps) {
 
   const summaryItems = [
     {
-      icon: <TimerReset className="icon icon--sm icon--indigo" />,
+      icon: <TimerReset className="icon icon--sm icon--ai-purple" />,
       label: "Elapsed",
       value: formatDurationFromHours(summary.elapsedHours)
     },
     {
-      icon: <Plane className="icon icon--sm icon--indigo" />,
+      icon: <Plane className="icon icon--sm icon--ai-purple" />,
       label: "Flight",
       value: formatDurationFromHours(summary.flightHours)
     },
@@ -55,7 +55,7 @@ export default function TripSummary({ itinerary }: TripSummaryProps) {
       value: formatDurationFromHours(summary.daylightHours)
     },
     {
-      icon: <Moon className="icon icon--sm icon--purple" />,
+      icon: <Moon className="icon icon--sm icon--night" />,
       label: "Night",
       value: formatDurationFromHours(summary.nightHours)
     }
@@ -65,7 +65,7 @@ export default function TripSummary({ itinerary }: TripSummaryProps) {
     <section className="trip-summary-card" aria-label="Trip Summary">
       <div className="trip-summary-card__header">
         <div className="controls-heading__label">
-          <Clock className="icon icon--sm icon--indigo" />
+          <Clock className="icon icon--sm icon--ai-purple" />
           <span>Trip Summary</span>
         </div>
         {!hasSegments && (
