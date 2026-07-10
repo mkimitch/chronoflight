@@ -68,9 +68,11 @@ export interface SleepWindow {
   label: string;
 }
 
+export type TimelineDisplayMode = "normal" | "night-only";
 export type TimelinePostArrivalMode = "adaptive" | "custom";
 
 export interface TimelinePreferences {
+  displayMode: TimelineDisplayMode;
   postArrivalMode: TimelinePostArrivalMode;
   postArrivalHours: number;
 }
@@ -179,8 +181,9 @@ export interface Itinerary {
     travelers: number;
     tripId: string;
   };
+  startDate?: string; // Origin local ISO date at trip hour 0 (YYYY-MM-DD).
   startHourLocal: number; // Origin local hour at trip hour 0 (0-23)
-  startDayName: string; // e.g. "Monday"
+  startDayName: string; // Derived display fallback, e.g. "Monday"
   locations: LocationConfig[];
   segments: FlightSegment[];
   timelineEvents?: TimelineEvent[];

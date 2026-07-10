@@ -172,7 +172,7 @@ export default function DynamicQAPanel({
     },
     {
       id: "q3",
-      icon: <Moon className="icon icon--purple" />,
+      icon: <Moon className="icon icon--night" />,
       question: "When should I try to sleep?",
       answer: () => {
         if (itinerary.locations.length < 2 || renderableSegments.length === 0) {
@@ -186,7 +186,7 @@ export default function DynamicQAPanel({
               Circadian adaptation requires shifting your biological clock. We recommend adjusting to your destination's nighttime cycle starting at the midpoint of your trip.
             </p>
             <div className={`qa-recommendation${isSleepRecommended ? " qa-recommendation--active" : ""}`}>
-              <Bed className={`icon icon--md${isSleepRecommended ? " icon--purple is-pulsing" : " icon--muted"}`} />
+              <Bed className={`icon icon--md${isSleepRecommended ? " icon--teal is-pulsing" : " icon--muted"}`} />
               <div>
                 <span className="qa-recommendation__title">Biological Recommendation</span>
                 <strong className="qa-recommendation__text">

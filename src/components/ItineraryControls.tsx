@@ -24,6 +24,10 @@ import {
   resolveSegmentDurationMinutes
 } from "../utils/durationFormat";
 import {
+  getDayNameForIsoDate,
+  getItineraryStartDate
+} from "../utils/itineraryTime";
+import {
   formatCoordinatesLabel,
   getAirportCode,
   getLocationName,
@@ -179,6 +183,8 @@ export default function ItineraryControls({
 }: ItineraryControlsProps) {
   const [activeTab, setActiveTab] = useState<"preset" | "locations" | "flights" | "sleep">("preset");
   const startHourOptions = Array.from({ length: 24 }, (_, index) => index);
+  const itineraryStartDate = getItineraryStartDate(currentItinerary);
+  const itineraryStartDayName = getDayNameForIsoDate(itineraryStartDate) ?? currentItinerary.startDayName;
   const hasCustomStartHour = !startHourOptions.includes(currentItinerary.startHourLocal);
   const timelinePreferences = getTimelinePreferences(currentItinerary);
   const timelineHorizon = getTimelineHorizon(currentItinerary);
@@ -199,6 +205,13 @@ export default function ItineraryControls({
     onUpdateItinerary({
       ...currentItinerary,
       ...updatedFields,
+    });
+  };
+
+  const handleStartDateChange = (value: string) => {
+    updateItinerary({
+      startDate: value,
+      startDayName: getDayNameForIsoDate(value) ?? currentItinerary.startDayName
     });
   };
 
@@ -510,8 +523,21 @@ export default function ItineraryControls({
 
               <div className="form-grid form-grid--two">
                 <div>
-                  <label className="field-label">
-                    Start Local Hour
+                  <label className="field-label" htmlFor="input-start-date">
+                    Trip Start Date
+                  </label>
+                  <input
+                    id="input-start-date"
+                    type="date"
+                    value={itineraryStartDate}
+                    onChange={(e) => handleStartDateChange(e.target.value)}
+                    className="form-input"
+                  />
+                </div>
+
+                <div>
+                  <label className="field-label" htmlFor="select-start-hour">
+                    Start Local Time
                   </label>
                   <select
                     id="select-start-hour"
@@ -533,26 +559,23 @@ export default function ItineraryControls({
                 </div>
 
                 <div>
-                  <label className="field-label">
-                    Departure Day
+                  <label className="field-label" htmlFor="input-start-day">
+                    Start Weekday
                   </label>
-                  <select
-                    id="select-start-day"
-                    value={currentItinerary.startDayName}
-                    onChange={(e) => updateItinerary({ startDayName: e.target.value })}
-                    className="form-input"
-                  >
-                    {["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].map((d) => (
-                      <option key={d} value={d}>{d}</option>
-                    ))}
-                  </select>
+                  <input
+                    id="input-start-day"
+                    type="text"
+                    readOnly
+                    value={itineraryStartDayName}
+                    className="form-input form-input--readonly form-input--strong"
+                  />
                 </div>
               </div>
             </div>
 
             <div className="controls-subsection">
               <div className="controls-heading__label">
-                <Clock className="icon icon--sm icon--indigo" />
+                <Clock className="icon icon--sm icon--ai-purple" />
                 <span>Timeline Range</span>
               </div>
 
@@ -605,6 +628,24 @@ export default function ItineraryControls({
                 </select>
               </div>
 
+              <div className="checkbox-row">
+                <input
+                  aria-describedby="night-only-toggle-help"
+                  type="checkbox"
+                  id="chk-night-only"
+                  checked={timelinePreferences.displayMode === "night-only"}
+                  onChange={(e) => handleTimelinePreferenceChange({
+                    displayMode: e.target.checked ? "night-only" : "normal"
+                  })}
+                  className="checkbox-input"
+                />
+                <label htmlFor="chk-night-only" className="checkbox-label">
+                  Night only focus
+                </label>
+                <span id="night-only-toggle-help" className="sr-only">
+                  When enabled, daylight and twilight cells remain interactive but are visually muted while night cells are emphasized.
+                </span>
+              </div>
               <div className="timeline-range-summary">
                 <span>Final arrival: {formatDurationFromHours(timelineHorizon.lastArrivalTripHour)}</span>
                 <span>Timeline ends: Trip {formatDurationFromHours(timelineHorizon.maxTripHour)}</span>
@@ -755,7 +796,7 @@ export default function ItineraryControls({
           <div className="controls-section">
             <div className="controls-heading">
               <div className="controls-heading__label">
-                <Plane className="icon icon--sm icon--indigo" />
+                <Plane className="icon icon--sm icon--ai-purple" />
                 <span>Flight Segments</span>
               </div>
               <button
@@ -937,7 +978,7 @@ export default function ItineraryControls({
         {activeTab === "sleep" && (
           <div className="controls-section">
             <div className="controls-heading__label">
-              <Moon className="icon icon--sm icon--indigo" />
+              <Moon className="icon icon--sm icon--night" />
               <span>Circadian Rhythm Settings</span>
             </div>
 

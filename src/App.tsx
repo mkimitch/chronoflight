@@ -3,6 +3,7 @@ import type { Itinerary } from "./types";
 import { travelPresets } from "./data/presets";
 import TimelineVisualizer from "./components/TimelineVisualizer";
 import ItineraryControls from "./components/ItineraryControls";
+import TripSummary from "./components/TripSummary";
 import DynamicQAPanel from "./components/DynamicQAPanel";
 import UXPortfolio from "./components/UXPortfolio";
 import ThemeToggle from "./components/ThemeToggle";
@@ -192,6 +193,7 @@ export default function App() {
 
                   {/* Right Column (Itinerary Configs & Controls) */}
                   <div className="app-content-aside">
+                    <TripSummary itinerary={currentItinerary} />
                     <ItineraryControls
                       currentItinerary={currentItinerary}
                       onUpdateItinerary={setCurrentItinerary}

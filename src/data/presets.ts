@@ -136,6 +136,7 @@ export const multiLegOvernightTripFixture: Itinerary = {
   id: "msp-yul-ath",
   name: "Minneapolis to Athens (via Montreal)",
   description: "Fixture for a multi-leg overnight trip with a layover, next-day arrival, IANA timezone IDs, cached UTC offsets, and airport coordinates.",
+  startDate: "2026-07-16",
   startHourLocal: 8,
   startDayName: "Thursday",
   locations: [
@@ -231,6 +232,7 @@ export const simpleNonstopTripFixture: Itinerary = {
   id: "jfk-lhr",
   name: "New York to London (Red-Eye Sprint)",
   description: "Fixture for a simple nonstop overnight trip with source schedule moments and a next-day local arrival.",
+  startDate: "2026-07-17",
   startHourLocal: 18,
   startDayName: "Friday",
   locations: [
@@ -293,18 +295,19 @@ export const travelPresets: Itinerary[] = [
   {
     id: "sydney-flight-2026-outbound",
     name: "Sydney Flight - MSP to SYD",
-    description: "Confirmed Delta Air Lines outbound itinerary for 4 travelers. MSP -> SYD via LAX, departing Mon, Jul 06, 2026 and arriving Wed, Jul 08, 2026. Fare class: Delta Main Basic. Trip ID: 1011154358.",
-    startHourLocal: 18 + 58 / 60,
-    startDayName: "Monday",
+    description: "Confirmed Delta and American Airlines outbound itinerary for 4 travelers. MSP -> SYD via LAX, departing Tue, Jul 07, 2026 and arriving Thu, Jul 09, 2026. Fare classes: E / Y. Trip ID: 1011154358.",
+    startDate: "2026-07-07",
+    startHourLocal: 8 + 42 / 60,
+    startDayName: "Tuesday",
     bookingDetails: {
-      airline: "Delta Air Lines",
+      airline: "Delta Air Lines / American Airlines",
       airlineReference: "HLYKSE",
       agencyReference: "JXJRYR",
       bookedDate: "Dec 24, 2025",
-      fareClass: "Delta Main Basic",
+      fareClass: "E / Y",
       route: "Minneapolis/St Paul (MSP) -> Sydney (SYD)",
       status: "Confirmed",
-      travelDates: "Mon, Jul 06, 2026 - Wed, Jul 08, 2026",
+      travelDates: "Tue, Jul 07, 2026 - Thu, Jul 09, 2026",
       travelers: 4,
       tripId: "1011154358"
     },
@@ -317,57 +320,57 @@ export const travelPresets: Itinerary[] = [
       {
         id: "sydney-outbound-dl2122",
         airline: "Delta Air Lines",
-        arrivalLabel: "Los Angeles (LAX), Mon, Jul 06, 2026, 8:55 PM",
-        departureLabel: "Minneapolis/St Paul (MSP), Mon, Jul 06, 2026, 6:58 PM",
-        durationMinutes: 237,
+        arrivalLabel: "Los Angeles (LAX), Tue, Jul 07, 2026, 10:22 AM",
+        departureLabel: "Minneapolis/St Paul (MSP), Tue, Jul 07, 2026, 8:42 AM",
+        durationMinutes: 220,
         flightNumber: "DL 2122",
         fromLocationId: "sydney-outbound-msp",
         operatedBy: "Delta Air Lines Inc",
         schedule: {
           departure: {
-            localDateTime: "2026-07-06T18:58:00-05:00",
-            utcDateTime: "2026-07-06T23:58:00Z",
+            localDateTime: "2026-07-07T08:42:00-05:00",
+            utcDateTime: "2026-07-07T13:42:00Z",
             timezoneIana: "America/Chicago",
             utcOffsetHours: -5
           },
           arrival: {
-            localDateTime: "2026-07-06T20:55:00-07:00",
-            utcDateTime: "2026-07-07T03:55:00Z",
+            localDateTime: "2026-07-07T10:22:00-07:00",
+            utcDateTime: "2026-07-07T17:22:00Z",
             timezoneIana: "America/Los_Angeles",
             utcOffsetHours: -7
           }
         },
         toLocationId: "sydney-outbound-lax",
         departureTripHour: 0,
-        duration: 3 + 57 / 60
+        duration: 3 + 40 / 60
       },
       {
-        id: "sydney-outbound-dl41",
-        airline: "Delta Air Lines",
-        arrivalLabel: "Sydney (SYD), Wed, Jul 08, 2026, 6:50 AM",
-        departureLabel: "Los Angeles (LAX), Mon, Jul 06, 2026, 10:55 PM",
-        durationMinutes: 895,
-        flightNumber: "DL 41",
+        id: "sydney-outbound-aa73",
+        airline: "American Airlines",
+        arrivalLabel: "Sydney (SYD), Thu, Jul 09, 2026, 7:05 AM",
+        departureLabel: "Los Angeles (LAX), Tue, Jul 07, 2026, 11:00 PM",
+        durationMinutes: 905,
+        flightNumber: "AA 73",
         fromLocationId: "sydney-outbound-lax",
         note: "2nd day arrival",
-        operatedBy: "Delta Air Lines Inc",
+        operatedBy: "American Airlines Inc.",
         schedule: {
           departure: {
-            localDateTime: "2026-07-06T22:55:00-07:00",
-            utcDateTime: "2026-07-07T05:55:00Z",
+            localDateTime: "2026-07-07T23:00:00-07:00",
+            utcDateTime: "2026-07-08T06:00:00Z",
             timezoneIana: "America/Los_Angeles",
             utcOffsetHours: -7
           },
           arrival: {
-            localDateTime: "2026-07-08T06:50:00+10:00",
-            utcDateTime: "2026-07-07T20:50:00Z",
+            localDateTime: "2026-07-09T07:05:00+10:00",
+            utcDateTime: "2026-07-08T21:05:00Z",
             timezoneIana: "Australia/Sydney",
             utcOffsetHours: 10
           }
         },
         toLocationId: "sydney-outbound-syd",
-        departureTripHour: 5 + 57 / 60,
-        duration: 14 + 55 / 60
+        departureTripHour: 16 + 18 / 60,
+        duration: 15 + 5 / 60
       }
     ],
     sleepPreferences: {
@@ -380,6 +383,7 @@ export const travelPresets: Itinerary[] = [
     id: "sydney-flight-2026-return",
     name: "Sydney Flight - SYD to MSP",
     description: "Confirmed Delta Air Lines return itinerary for 4 travelers. SYD -> MSP via LAX on Wed, Jul 29, 2026. Fare class: Delta Main Basic. Trip ID: 1011154358.",
+    startDate: "2026-07-29",
     startHourLocal: 9 + 15 / 60,
     startDayName: "Wednesday",
     bookingDetails: {
@@ -466,6 +470,7 @@ export const travelPresets: Itinerary[] = [
     id: "sfo-nrt-sin",
     name: "San Francisco to Singapore (via Tokyo)",
     description: "A major Transpacific crossing that spans the International Date Line. Highlights the extreme jump of +16 hours, showing how a flight departing at noon arrives in the late afternoon of the following calendar day.",
+    startDate: "2026-07-13",
     startHourLocal: 11,
     startDayName: "Monday",
     locations: [
