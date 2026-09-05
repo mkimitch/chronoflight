@@ -5,7 +5,8 @@
   "packageManager": "pnpm@11.9.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --port=3000 --host=0.0.0.0",
+    "dev": "vite --port=3000",
+    "dev:lan": "vite --port=3000 --host=0.0.0.0",
     "build": "vite build",
     "preview": "vite preview",
     "flight:lookup": "tsx scripts/airlabs-flight-lookup.ts",
